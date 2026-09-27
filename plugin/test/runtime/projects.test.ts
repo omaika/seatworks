@@ -31,20 +31,20 @@ test("two projects on one daemon keep their own settings, task ids and letters",
   const provider = (task: { peer?: string }) => h.agents.get(task.peer!)!.provider;
   const here = await open(h.root, "sup-a");
   await add(here, h.root, { hints: ["a.txt"] });
-  assert.equal(provider(h.ledger().tasks["L1-T1"]!), "sw2-peer-claude/claude-opus-5");
-  assert.equal(h.agents.get(here.lead!)!.provider, "sw2-lead-claude/claude-opus-5");
+  assert.equal(provider(h.ledger().tasks["L1-T1"]!), "sw2-peer-claude/claude-opus-5-5[1m]");
+  assert.equal(h.agents.get(here.lead!)!.provider, "sw2-lead-claude/claude-opus-5-5[1m]");
   const shown = await h.rpc(contracts.settingsRead, { project: h.project.slug });
   const values = { roles: { peer: { harness: "pi", model: "glm-5" } } };
   const saved = await h.rpc(contracts.settingsWrite, { project: h.project.slug, revision: shown.revision, values });
   assert.equal(saved.status, "saved", JSON.stringify(saved));
   await add(here, h.root, { holds: ["b.txt"], parallel: true });
   assert.equal(provider(h.ledger().tasks["L1-T2"]!), "sw2-peer-pi/glm-5");
-  assert.equal(h.agents.get(here.lead!)!.provider, "sw2-lead-claude/claude-opus-5");
+  assert.equal(h.agents.get(here.lead!)!.provider, "sw2-lead-claude/claude-opus-5-5[1m]");
 
   const there = await open(second, "sup-b");
   await add(there, second, { hints: ["a.txt"] });
   const [mine, theirs] = [h.ledger().tasks["L1-T1"]!, h.ledger(other).tasks["L1-T1"]!];
-  assert.equal(provider(theirs), "sw2-peer-claude/claude-opus-5");
+  assert.equal(provider(theirs), "sw2-peer-claude/claude-opus-5-5[1m]");
   for (const task of [mine, theirs]) h.agents.get(task.peer!)!.archivedAt = new Date().toISOString();
   await h.tick(Date.now());
   await h.idle(here.lead!);
