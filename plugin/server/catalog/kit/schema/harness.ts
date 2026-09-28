@@ -1,13 +1,10 @@
 import { z } from "zod";
-import { Json, text, texts } from "./fields.ts";
+import { Json, Platform, text, texts } from "./fields.ts";
 import { Pattern } from "../../../../shared/settings.ts";
 import { McpTransport } from "./mcp.ts";
 
 /** A refusal the desk adds to a seat's settings: `as`, with each `{command}` or `{path}` filled in, laid over what is at `at`. */
 const Refusal = z.strictObject({ at: text, as: z.union([z.array(z.unknown()).min(1), Json]) });
-
-/** A platform as the daemon's Node names it. */
-const Platform = z.enum(["darwin", "linux", "win32"]);
 
 /** `harness/<id>/harness.json`: how one agent harness is set up, launched and read. */
 export const HarnessFile = z

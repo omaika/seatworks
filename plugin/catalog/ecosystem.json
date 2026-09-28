@@ -51,7 +51,20 @@
       "files": [
         "mvnw"
       ],
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
       "run": "./mvnw -q test"
+    },
+    {
+      "files": [
+        "mvnw.cmd"
+      ],
+      "platforms": [
+        "win32"
+      ],
+      "run": ".\\mvnw.cmd -q test"
     },
     {
       "files": [
@@ -63,7 +76,20 @@
       "files": [
         "gradlew"
       ],
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
       "run": "./gradlew test"
+    },
+    {
+      "files": [
+        "gradlew.bat"
+      ],
+      "platforms": [
+        "win32"
+      ],
+      "run": ".\\gradlew.bat test"
     },
     {
       "files": [

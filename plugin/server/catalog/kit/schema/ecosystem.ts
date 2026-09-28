@@ -1,9 +1,11 @@
 import { z } from "zod";
-import { text, texts } from "./fields.ts";
+import { Platform, text, texts } from "./fields.ts";
 import { Pattern } from "../../../../shared/settings.ts";
 
+/** `platforms`, when set, are the only ones the gate is found on: a wrapper's script runs on POSIX, its .cmd or .bat on Windows. */
 const Gate = z.strictObject({
   files: z.array(text).min(1),
+  platforms: z.array(Platform).min(1).optional(),
   script: text.optional(),
   run: text,
   lockfiles: z.record(z.string(), text).optional(),

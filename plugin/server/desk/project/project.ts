@@ -99,10 +99,14 @@ function scriptIn(file: string, name: string, unset: string): boolean {
   return body !== undefined && !body.includes(unset);
 }
 
-/** The first of the ecosystem's gates whose files the project holds; one running a package script needs the script. */
+/**
+ * The first of the ecosystem's gates for this platform whose files the project holds; one running a package script needs
+ * the script.
+ */
 export function detectGate(root: string, ecosystem: Ecosystem): string | undefined {
   const has = (name: string) => existsSync(join(root, name));
   for (const gate of ecosystem.gates) {
+    if (gate.platforms && !gate.platforms.some((platform) => platform === process.platform)) continue;
     const file = gate.files.find(has);
     if (!file || (gate.script && !scriptIn(join(root, file), gate.script, ecosystem.unsetScript))) continue;
     return Object.entries(gate.lockfiles ?? {}).find(([lockfile]) => has(lockfile))?.[1] ?? gate.run;

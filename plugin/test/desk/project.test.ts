@@ -53,3 +53,20 @@ test("a project's gate is found from its files, and so is the runner that gate s
   writeFileSync(join(root, "pnpm-lock.yaml"), "");
   assert.equal(detectGate(root, ecosystem), "pnpm test");
 });
+
+test("a wrapper's gate is the form this platform's shell starts: its .cmd or .bat on Windows, its script elsewhere", (t) => {
+  const real = process.platform;
+  t.after(() => Object.defineProperty(process, "platform", { value: real, configurable: true }));
+  const maven = tempDir("sw2-mvnw-");
+  for (const file of ["pom.xml", "mvnw", "mvnw.cmd"]) writeFileSync(join(maven, file), "");
+  const gradle = tempDir("sw2-gradlew-");
+  for (const file of ["build.gradle", "gradlew", "gradlew.bat"]) writeFileSync(join(gradle, file), "");
+  for (const platform of ["darwin", "linux"]) {
+    Object.defineProperty(process, "platform", { value: platform, configurable: true });
+    assert.equal(detectGate(maven, ecosystem), "./mvnw -q test", platform);
+    assert.equal(detectGate(gradle, ecosystem), "./gradlew test", platform);
+  }
+  Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+  assert.equal(detectGate(maven, ecosystem), ".\\mvnw.cmd -q test");
+  assert.equal(detectGate(gradle, ecosystem), ".\\gradlew.bat test");
+});
