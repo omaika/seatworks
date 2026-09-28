@@ -5,17 +5,21 @@
 // to each role's own rules: a seat that may write stands on its task's branch, since none checks out or switches. Any
 // other ref moved, by whatever command, is refused, since the desk's record names them.
 // It works only in the seat's own copy of the project ($SEATWORKS_WORKTREE): the Human's checkout and every other
-// seat's copy of the same repository are refused, which on an agent with no sandbox is all that keeps them apart; a
-// repository of any other making, as a test suite builds, is not.
+// seat's copy of the same repository are refused, which on an agent with no sandbox is all that keeps them apart. In a
+// repository of any other making, as a test suite builds, the desk's record names nothing, and only what reaches a
+// remote is refused.
 // Run as: git-shim.mjs <git> <args>.
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
+import { sep } from "node:path";
 
 const [git, ...argv] = process.argv.slice(2);
 
 const VALUED = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env", "--list-cmds", "--attr-source"]);
 
-const DESKS = new Set(["push", "pull", "checkout", "switch", "update-ref", "stash", "send-pack", "http-push", "receive-pack", "fast-import", "filter-branch", "filter-repo"]);
+const OUTWARD = new Set(["push", "pull", "send-pack", "http-push", "receive-pack"]);
+
+const DESKS = new Set(["checkout", "switch", "update-ref", "stash", "fast-import", "filter-branch", "filter-repo"]);
 
 const OWN = new Set(["merge", "rebase", "reset", "cherry-pick", "add", "blame", "branch", "commit", "config", "diff", "fetch", "grep", "log", "ls-files", "rev-parse", "show", "status", "worktree"]);
 
@@ -28,14 +32,14 @@ function split(args) {
 }
 
 /** What git prints for these arguments, or nothing where it fails. */
-function gitSays(globals, args) {
-  const run = spawnSync(git, [...globals, ...args], { encoding: "utf-8" });
+function gitSays(globals, args, env = process.env) {
+  const run = spawnSync(git, [...globals, ...args], { encoding: "utf-8", env });
   return run.status === 0 ? run.stdout.trim() : "";
 }
 
 /**
  * Each long option of the git command `path` names, and whether it takes a value, as git's own completion reads them,
- * so a cut name resolves as this git resolves it. Outside a repository there is no ref to move, and none are needed.
+ * so a cut name resolves as this git resolves it. Outside the project's repository no ref it names can move, and none are needed.
  */
 function longsOf(globals, path) {
   const said = gitSays(globals, [...path, "--git-completion-helper-all"]);
@@ -45,7 +49,7 @@ function longsOf(globals, path) {
       .filter((word) => word.startsWith("--") && word !== "--")
       .map((word) => (word.endsWith("=") ? [word.slice(2, -1), true] : [word.slice(2), false])),
   );
-  if (longs.size === 0 && gitSays(globals, ["rev-parse", "--git-dir"]))
+  if (longs.size === 0 && gitSays(globals, ["rev-parse", "--git-dir"]) && inProject(globals))
     refuse(`git could not list the options of git ${path.join(" ")}, which this check reads to see whether it moves a ref; it needs git 2.18 or newer`);
   return longs;
 }
@@ -153,6 +157,8 @@ const BRANCH_SHORTS = { v: "verbose", q: "quiet", t: "track?", u: "set-upstream-
 const TAG_SHORTS = { l: "list", n: "n?", d: "delete", v: "verify", a: "annotate", m: "message=", F: "file=", e: "edit", s: "sign", u: "local-user=", f: "force", i: "ignore-case" };
 const SUBTREE_LONGS = new Map([["prefix", true], ["annotate", true], ["branch", true], ["onto", true], ["message", true], ["quiet", false], ["debug", false], ["ignore-joins", false], ["rejoin", false], ["squash", false], ["gpg-sign", false]]);
 
+const subtreeParsed = (rest) => parsed(rest, () => SUBTREE_LONGS, { q: "quiet", d: "debug", P: "prefix=", b: "branch=", m: "message=" });
+
 /** For each command that can move a ref, why these arguments would move one past the seat's own branch. */
 const MOVES = {
   branch: (rest, globals) => {
@@ -189,7 +195,7 @@ const MOVES = {
       ? "git replay moves the refs it replays, and that is the desk's to do; --ref-action=print shows what it would do"
       : undefined,
   history: (rest, globals) => {
-    if (!["reword", "split"].includes(rest[0])) return undefined;
+    if (!["fixup", "reword", "split"].includes(rest[0])) return undefined;
     const { options } = parsed(rest.slice(1), () => longsOf(globals, ["history", rest[0]]));
     return on(options, "dry-run") || valueOf(options, "update-refs") === "head"
       ? undefined
@@ -209,14 +215,21 @@ const MOVES = {
     return configured.length ? `git remote update lands where ${configured[0]} says, outside the remote's own mirror, and that is the desk's to do` : undefined;
   },
   subtree: (rest) => {
-    const { options, operands } = parsed(rest, () => SUBTREE_LONGS, { q: "quiet", d: "debug", P: "prefix=", b: "branch=", m: "message=" });
-    if (operands[0] === "push") return "git subtree push is a push, and that is the desk's to do";
+    const { options, operands } = subtreeParsed(rest);
     return operands[0] === "split" && has(options, "branch")
       ? "git subtree split --branch moves the branch it names, and that is the desk's to do; split without it prints the commit"
       : undefined;
   },
 };
 
+/** Why these arguments would reach a remote, which the Human owns whatever repository they are run in. */
+function outward(command, rest) {
+  if (OUTWARD.has(command)) return `git ${command} carries refs between repositories, and that is the desk's to do`;
+  if (command === "subtree" && subtreeParsed(rest).operands[0] === "push") return "git subtree push is a push, and that is the desk's to do";
+  return undefined;
+}
+
+/** Why these arguments would move a ref or a working copy the desk's record names, which it does only in the project's repository. */
 function refusal(command, rest, globals) {
   if (DESKS.has(command)) return `git ${command} moves branches or working copies, and that is the desk's to do`;
   return Object.hasOwn(MOVES, command) ? MOVES[command](rest, globals) : undefined;
@@ -235,18 +248,67 @@ function expanded(globals, command) {
   return alias.startsWith("!") ? alias : alias.split(/\s+/);
 }
 
-/** The copy git works in for these options and the repository it is a copy of; nothing where it works in none. */
-function copyOf(globals) {
-  const run = spawnSync(git, [...globals, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"], {
-    encoding: "utf-8",
-  });
-  const [top, common] = run.status === 0 ? run.stdout.trim().split(/\r?\n/) : [];
-  if (!top || !common) return undefined;
+const LOCATING = new Set(["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_NAMESPACE"]);
+
+/** The environment without what names a repository, so git finds one only from the directory it is given, as a copy's own git does. */
+const UNLOCATED = Object.fromEntries(Object.entries(process.env).filter(([name]) => !LOCATING.has(name.toUpperCase())));
+
+/** The absolute paths git names for these rev-parse options, resolved; nothing where it names none. */
+function pathsOf(globals, flags, env) {
+  const said = gitSays(globals, ["rev-parse", "--path-format=absolute", ...flags], env).split(/\r?\n/);
+  if (said.length !== flags.length || !said.every(Boolean)) return undefined;
   try {
-    return { top: realpathSync.native(top), common: realpathSync.native(common) };
+    return said.map((path) => realpathSync.native(path));
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The work tree git works in for these options, where it has one, its git directory, and the repository it is a copy
+ * of; nothing outside a repository. git names none of them where it has no work tree and is asked for one.
+ */
+function copyOf(globals, env) {
+  const [top, dir, common] = pathsOf(globals, ["--show-toplevel", "--absolute-git-dir", "--git-common-dir"], env) ?? [];
+  if (top) return { top, dir, common };
+  const [bareDir, bareCommon] = pathsOf(globals, ["--absolute-git-dir", "--git-common-dir"], env) ?? [];
+  return bareDir ? { dir: bareDir, common: bareCommon } : undefined;
+}
+
+/** Where each copy of the project lies, as git lists the worktrees of the seat's own; a copy whose directory is gone encloses nothing. */
+function copiesOf(own) {
+  const listed = gitSays(["-C", own], ["worktree", "list", "--porcelain"], UNLOCATED)
+    .split(/\r?\n\r?\n/)
+    .map((entry) => entry.split(/\r?\n/))
+    .filter((lines) => !lines.includes("bare"))
+    .flatMap((lines) => lines.filter((line) => line.startsWith("worktree ")).map((line) => line.slice("worktree ".length)));
+  if (listed.length === 0) refuse(`git could not list the copies of the project your own copy ${own} belongs to, which this check reads to keep you out of theirs`);
+  return listed.flatMap((path) => {
+    try {
+      return [realpathSync.native(path)];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/**
+ * The nearest copy of the project that directory `top` lies in: a repository nested in a copy, or a work tree named
+ * beside another git directory, still writes that copy's files.
+ */
+function copyAround(top, copies) {
+  const enclosing = copies.filter((copy) => top === copy || top.startsWith(copy.endsWith(sep) ? copy : copy + sep));
+  return enclosing.sort((a, b) => b.length - a.length)[0];
+}
+
+/**
+ * Whether git works in the project's repository for these options: in any copy of it, or wherever that cannot be told
+ * apart, as with no $SEATWORKS_WORKTREE or a git before 2.31, so the project's own refs are never left unguarded.
+ */
+function inProject(globals) {
+  if (!own || !mine) return true;
+  const here = globals === started.globals && started.here ? started.here.common : pathsOf(globals, ["--git-common-dir"])?.[0];
+  return !here || here === mine.common;
 }
 
 function refuse(why) {
@@ -256,14 +318,23 @@ function refuse(why) {
 
 let { globals, command, rest } = split(argv);
 const own = process.env.SEATWORKS_WORKTREE;
-if (own && command) {
-  const [here, mine] = [copyOf(globals), copyOf(["-C", own])];
-  if (here && mine && here.common === mine.common && here.top !== mine.top)
+const found = own && command ? copyOf(["-C", own], UNLOCATED) : undefined;
+const mine = found?.top ? found : undefined;
+const started = { globals, here: mine ? copyOf(globals) : undefined };
+const { here } = started;
+if (here && mine) {
+  const copy = here.top === undefined ? undefined : here.common === mine.common ? here.top : copyAround(here.top, copiesOf(own));
+  if (copy !== undefined && copy !== mine.top)
     refuse(`this git works in ${here.top}, not in your own copy ${mine.top}; read another copy's work by its branch from yours`);
+  // Another copy's git directory, over this work tree or none, moves that copy's branch.
+  if (here.common === mine.common && here.dir !== mine.dir)
+    refuse(`this git reads ${here.dir}, not your own copy's ${mine.dir}; read another copy's work by its branch from yours`);
 }
 for (let depth = 0; command; depth++) {
+  const reaches = outward(command, rest);
+  if (reaches) refuse(reaches);
   const why = refusal(command, rest, globals);
-  if (why) refuse(why);
+  if (why && inProject(globals)) refuse(why);
   const words = expanded(globals, command);
   if (!words) break;
   if (depth === DEPTH) refuse(`git ${command} is an alias more than ${DEPTH} deep, past what this check reads; run what it stands for`);

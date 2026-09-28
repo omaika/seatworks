@@ -78,6 +78,9 @@ function shellsAt(dir: string, t: TestContext) {
   }));
 }
 
+/** The env a seat's git runs in, the desk naming `copy` as the seat's own copy of the project. */
+const seatIn = (copy: string): NodeJS.ProcessEnv => ({ ...process.env, SEATWORKS_WORKTREE: copy });
+
 /** What a batch file's echo writes, read as the shim's own output is: cmd ends a line with a carriage return. */
 const lines = (text: string) => text.replaceAll("\r\n", "\n");
 const BRANCH_REWRITES = [
@@ -130,7 +133,7 @@ test("a seat's shell, on the PATH the desk gives it, refuses what only the desk 
     "each command in the form this platform's shells start, and nothing the kit no longer refuses left refusing",
   );
 
-  const git = (...args: string[]) => shimGit(dir, args);
+  const git = (...args: string[]) => shimGit(dir, args, { env: seatIn(root) });
   const refused = (...args: string[]) => {
     const ran = git(...args);
     return ran.status === 1 && /^git: refused: /.test(ran.stderr);
@@ -221,7 +224,8 @@ test("a seat settles what conflicts on its task's branch through its git: pickin
   real("add", "b.txt");
   real("commit", "-qm", "fix");
   const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-shim-own-state-"))!;
-  const git = (...args: string[]) => shimGit(dir, ["-C", root, "-c", "user.name=t", "-c", "user.email=t@x", ...args]);
+  const git = (...args: string[]) =>
+    shimGit(dir, ["-C", root, "-c", "user.name=t", "-c", "user.email=t@x", ...args], { env: seatIn(root) });
   const refused = (...args: string[]) => /^git: refused: /.test(git(...args).stderr);
 
   real("switch", "-q", "task/l1-t1-cart");
@@ -373,13 +377,9 @@ const REF_MOVES: [string, string[]][] = [
   ["remote remove", ["remote", "remove", "origin"]],
   ["remote rm", ["remote", "rm", "origin"]],
   ["subtree split into a branch", ["subtree", "split", "-P", "dir", "-b", "other"]],
-  ["subtree push", ["subtree", "push", "-P", "dir", "origin", "main"]],
   ["filter-branch", ["filter-branch", "--", "--all"]],
   ["filter-repo", ["filter-repo", "--force"]],
   ["fast-import", ["fast-import"]],
-  ["send-pack", ["send-pack", ".", "main:other"]],
-  ["http-push", ["http-push", "http://example.invalid/", "main"]],
-  ["receive-pack", ["receive-pack", "."]],
   ["rebase --root cut short, naming another branch", ["rebase", "--roo", "other"]],
   [
     "fetch through a refspec given as config",
@@ -393,11 +393,34 @@ const REF_MOVES: [string, string[]][] = [
   ["history reword, which rewrites every branch holding the commit", ["history", "reword", "HEAD~1"]],
   ["history split", ["history", "split", "HEAD"]],
   ["bisect reset to another commit", ["bisect", "reset", "main"]],
+  ["checkout of another branch", ["checkout", "other"]],
+  ["switch to a new branch", ["switch", "-c", "aside"]],
+  ["update-ref", ["update-ref", "refs/heads/other", "HEAD"]],
+  ["stash", ["stash", "list"]],
+  ["worktree add", ["worktree", "add", "-q", "../aside"]],
+  ["branch -D", ["branch", "-D", "other"]],
 ];
 
-test("a seat's git refuses every spelling that moves a ref other than its own branch, and runs what moves nothing else", (t) => {
-  const root = tempDir("sw2-shim-refs-");
-  const origin = tempDir("sw2-shim-refs-origin-");
+/** What reaches a remote: refused in any repository, since the remote is the Human's whatever repository it is run from. */
+const REACHES: [string, string[]][] = [
+  ["push", ["push", "origin", "main"]],
+  ["pull", ["pull", "--no-rebase", "origin", "main"]],
+  ["push through an alias", ["-c", "alias.p=push", "p"]],
+  ["pull through an alias kept in config", ["-c", "alias.up=pull --ff-only", "up"]],
+  ["a shell alias, whose git this check cannot read", ["-c", "alias.s=!git push", "s"]],
+  ["subtree push", ["subtree", "push", "-P", "dir", "origin", "main"]],
+  ["send-pack", ["send-pack", ".", "main:other"]],
+  ["http-push", ["http-push", "http://example.invalid/", "main"]],
+  ["receive-pack", ["receive-pack", "."]],
+];
+
+/**
+ * A repository with a remote, a branch `other`, a tag `v1`, and a task branch checked out one commit past main, for
+ * git run as the test suite that `real` stands for runs it.
+ */
+function refsRepo(prefix: string) {
+  const root = tempDir(`${prefix}-`);
+  const origin = tempDir(`${prefix}-origin-`);
   const real = (...args: string[]) =>
     execFileSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@x", ...args], { encoding: "utf-8" });
   execFileSync("git", ["-C", origin, "init", "-q", "-b", "main"]);
@@ -424,21 +447,37 @@ test("a seat's git refuses every spelling that moves a ref other than its own br
   writeFileSync(join(root, "a.txt"), "task\n");
   real("add", "a.txt");
   real("commit", "-q", "-m", "task");
-  const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-shim-refs-state-"))!;
-  const git = (...args: string[]) => shimGit(dir, ["-C", root, "-c", "user.name=t", "-c", "user.email=t@x", ...args]);
+  return { root, origin, real };
+}
 
-  const passed = REF_MOVES.filter(([, args]) => !/^git: refused: /.test(git(...args).stderr)).map(([why]) => why);
+/** Whether the installed git offers `option` on the command `path` names; a row that needs it is left out, and the run says so. */
+function offers(t: TestContext, cwd: string, option: string, ...path: string[]) {
+  const listed = spawnSync("git", ["-C", cwd, ...path, "--git-completion-helper-all"], { encoding: "utf-8" });
+  const has = listed.status === 0 && listed.stdout.split(/\s+/).includes(option);
+  if (!has) t.diagnostic(`this git's ${path.join(" ")} has no ${option}: nothing ran the rows that need it`);
+  return has;
+}
+
+/** `history fixup`, where the installed git has it: git 2.55 added it, rewriting every branch holding the commit. */
+const fixupRows = (t: TestContext, cwd: string): [string, string[]][] =>
+  offers(t, cwd, "--update-refs=", "history", "fixup")
+    ? [["history fixup, which rewrites every branch holding the commit", ["history", "fixup", "HEAD~1"]]]
+    : [];
+
+test("a seat's git refuses every spelling that moves a ref other than its own branch, and runs what moves nothing else", (t) => {
+  const { root, origin, real } = refsRepo("sw2-shim-refs");
+  const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-shim-refs-state-"))!;
+  const git = (...args: string[]) =>
+    shimGit(dir, ["-C", root, "-c", "user.name=t", "-c", "user.email=t@x", ...args], { env: seatIn(root) });
+
+  const passed = [...REF_MOVES, ...fixupRows(t, root), ...REACHES]
+    .filter(([, args]) => !/^git: refused: /.test(git(...args).stderr))
+    .map(([why]) => why);
   assert.deepEqual(passed, [], "each spelling that moves a ref other than the seat's own branch");
   const refs = real("for-each-ref", "--format=%(refname) %(objectname)");
   // A row that needs an option this git lacks is left out, and the run says so: the shim still takes git 2.18.
-  const offers = (option: string, ...path: string[]) => {
-    const listed = spawnSync("git", ["-C", root, ...path, "--git-completion-helper-all"], { encoding: "utf-8" });
-    const has = listed.status === 0 && listed.stdout.split(/\s+/).includes(option);
-    if (!has) t.diagnostic(`this git's ${path.join(" ")} has no ${option}: nothing ran the rows that need it`);
-    return has;
-  };
-  const printsReplay = offers("--ref-action=", "replay");
-  const rewordsHead = offers("--update-refs=", "history", "reword");
+  const printsReplay = offers(t, root, "--ref-action=", "replay");
+  const rewordsHead = offers(t, root, "--update-refs=", "history", "reword");
   const allowed = [
     ["fetch", "origin"],
     ["fetch", "--prune", "origin"],
@@ -507,6 +546,111 @@ test("a seat's git refuses every spelling that moves a ref other than its own br
   assert.deepEqual(unseen, [], "nor does a refspec the repository's config holds move a local branch unseen");
 });
 
+test("a seat's git leaves a repository of another making, as the project's own test suite builds, to git, but for what reaches a remote", (t) => {
+  const project = refsRepo("sw2-shim-project");
+  const copies = tempDir("sw2-shim-project-copies-");
+  const [copy, theirs] = [join(copies, "S0"), join(copies, "S1")];
+  project.real("worktree", "add", "-q", "-b", "task/l1-t2", copy);
+  project.real("worktree", "add", "-q", "-b", "task/l1-t4", theirs);
+  const fixture = refsRepo("sw2-shim-fixture");
+  const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-shim-fixture-state-"))!;
+  // Git itself, unrefused, may open an editor or pause to warn: neither waits on a test.
+  const env = { ...seatIn(copy), GIT_EDITOR: "true", FILTER_BRANCH_SQUELCH_WARNING: "1" };
+  const refused = (where: string, args: string[], seat: NodeJS.ProcessEnv = env) =>
+    /^git: refused: /.test(
+      shimGit(dir, ["-C", where, "-c", "user.name=t", "-c", "user.email=t@x", ...args], { env: seat }).stderr,
+    );
+  const rows = [...REF_MOVES, ...fixupRows(t, fixture.root)];
+
+  const guarded = rows.filter(([, args]) => !refused(copy, args)).map(([why]) => why);
+  assert.deepEqual(guarded, [], "in the seat's own copy, a worktree of the project, each is refused");
+  assert.ok(
+    refused(fixture.root, ["tag", "-d", "v1"], { ...process.env, SEATWORKS_WORKTREE: undefined }),
+    "and with no copy named there is no telling a repository from the project's, so none is left unguarded",
+  );
+  const gitDirOf = (at: string) =>
+    execFileSync("git", ["-C", at, "rev-parse", "--absolute-git-dir"], { encoding: "utf-8" }).trim();
+  const tips = () => project.real("for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/");
+  const tipsBefore = tips();
+  assert.ok(
+    refused(copy, [`--git-dir=${gitDirOf(project.root)}`, `--work-tree=${copy}`, "reset", "--soft", "HEAD~1"]),
+    "the Human's git directory over the seat's own work tree would move the Human's branch",
+  );
+  assert.ok(
+    refused(copy, ["reset", "--soft", "HEAD~1"], { ...env, GIT_DIR: gitDirOf(theirs), GIT_WORK_TREE: copy }),
+    "as would another seat's, named by GIT_DIR",
+  );
+  assert.ok(
+    refused(copy, [`--git-dir=${gitDirOf(project.root)}`, "--bare", "reset", "--soft", "HEAD~1"]),
+    "and with no work tree at all",
+  );
+  assert.ok(
+    refused(gitDirOf(theirs), ["reset", "--soft", "HEAD~1"]),
+    "or run from inside another seat's git directory",
+  );
+  assert.equal(tips(), tipsBefore, "and no branch moved");
+  const own = shimGit(dir, ["-C", copy, "status", "--short"], { env: { ...env, GIT_DIR: gitDirOf(copy) } });
+  assert.equal(own.status, 0, `the seat's own git directory named by GIT_DIR is its own: ${own.stderr}`);
+  const inside = shimGit(dir, ["-C", gitDirOf(copy), "log", "-1", "--oneline"], { env });
+  assert.equal(inside.status, 0, `as is git run from inside it: ${inside.stderr}`);
+  const fixtureDir = join(fixture.root, ".git");
+  assert.ok(
+    !refused(copy, ["tag", "-d", "v1"], { ...env, GIT_DIR: fixtureDir }),
+    "a fixture named by GIT_DIR is no more the project's, though git runs from the seat's own copy",
+  );
+  assert.equal(fixture.real("tag", "-l", "v1"), "", "and git deleted its tag");
+  const overwrite = shimGit(dir, [`--git-dir=${fixtureDir}`, `--work-tree=${project.root}`, "checkout", "-f", "main"], {
+    cwd: copy,
+    env,
+  });
+  assert.match(
+    overwrite.stderr,
+    /^git: refused: this git works in [^\n]*, not in your own copy/,
+    "a fixture's history checked out over the Human's checkout is refused, whatever git directory it is read from",
+  );
+  assert.equal(readFileSync(join(project.root, "a.txt"), "utf-8"), "task\n", "and their files are as they were");
+  // A repository of its own inside a copy, as a vendored dependency or a suite's fixture sits there.
+  const nestedIn = (parent: string) => {
+    const at = join(parent, "vendor", "dep");
+    mkdirSync(at, { recursive: true });
+    const real = (...args: string[]) =>
+      execFileSync("git", ["-C", at, "-c", "user.name=t", "-c", "user.email=t@x", ...args], { encoding: "utf-8" });
+    real("init", "-q", "-b", "main");
+    real("commit", "-q", "--allow-empty", "-m", "seed");
+    real("branch", "other");
+    return { at, branch: () => real("symbolic-ref", "--short", "HEAD").trim() };
+  };
+  const inHumans = nestedIn(project.root);
+  assert.ok(
+    refused(inHumans.at, ["checkout", "-q", "other"]),
+    "a repository nested in the Human's checkout writes their files, so it is theirs as the checkout is",
+  );
+  assert.equal(inHumans.branch(), "main");
+  const inMine = nestedIn(copy);
+  assert.ok(!refused(inMine.at, ["checkout", "-q", "other"]), "one nested in the seat's own copy is the seat's");
+  assert.equal(inMine.branch(), "other");
+  const inner = join(project.root, ".copies", "S2");
+  project.real("worktree", "add", "-q", "-b", "task/l1-t3", inner);
+  const inInner = nestedIn(inner);
+  assert.ok(
+    !refused(inInner.at, ["checkout", "-q", "other"], { ...env, SEATWORKS_WORKTREE: inner }),
+    "and a seat's own copy inside the Human's checkout is still its own: the nearest copy decides",
+  );
+  const before = fixture.real("for-each-ref", "--format=%(refname) %(objectname)");
+  const passed = rows.filter(([, args]) => refused(fixture.root, args)).map(([why]) => why);
+  assert.deepEqual(passed, [], "in the fixture, each runs as git would outside Seatworks");
+  assert.notEqual(
+    fixture.real("for-each-ref", "--format=%(refname) %(objectname)"),
+    before,
+    "and moves the fixture's refs as git moves them",
+  );
+  const bare = tempDir("sw2-shim-fixture-bare-");
+  execFileSync("git", ["clone", "-q", "--bare", fixture.origin, bare]);
+  assert.ok(!refused(bare, ["update-ref", "-d", "refs/heads/main"]), "a bare repository with no work tree too");
+  const reached = REACHES.filter(([, args]) => !refused(fixture.root, args)).map(([why]) => why);
+  assert.deepEqual(reached, [], "what reaches a remote is refused wherever it is run");
+});
+
 test("a seat's git that cannot list a command's options refuses that command in a repository, saying which git it needs", () => {
   const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-shim-old-git-state-"))!;
   const root = tempDir("sw2-shim-old-git-repo-");
@@ -528,7 +672,8 @@ test("a seat's git that cannot list a command's options refuses that command in 
   // A value its command dies on stops the real git listing that command's options, as a git before 2.18 does, and on
   // Windows too, where the shim starts only a git.exe and no git of the test's own making.
   const unlisted = ["-c", "fetch.parallel=x", "-c", "rebase.autoSquash=maybe"];
-  const git = (where: string, ...args: string[]) => shimGit(dir, ["-C", where, ...unlisted, ...args]);
+  const git = (where: string, ...args: string[]) =>
+    shimGit(dir, ["-C", where, ...unlisted, ...args], { env: seatIn(root) });
 
   for (const args of [
     ["fetch", "--forc", "origin"],
