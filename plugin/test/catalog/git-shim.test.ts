@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { loadKit } from "../../server/catalog/kit/kit.ts";
 import { executableIn, pathDirs } from "../../server/core/paths.ts";
 import { seatBin } from "../../server/catalog/seat/seat-bin.ts";
+import { harness } from "../runtime/harness.ts";
 import { tempDir } from "../tempdir.ts";
 
 const PLUGIN = fileURLToPath(new URL("../..", import.meta.url));
@@ -232,20 +233,24 @@ test("a seat settles what conflicts on its task's branch through its git: mergin
 });
 
 test("a seat's git works only in its own copy of the project: the Human's checkout and other seats' copies are refused, any other repository is not", () => {
-  const root = tempDir("sw2-shim-own-copy-");
-  const real = (...args: string[]) =>
-    execFileSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@x", ...args], { encoding: "utf-8" });
-  real("init", "-q", "-b", "main");
-  real("commit", "-q", "--allow-empty", "-m", "seed");
+  const h = harness();
+  const root = h.root;
   const copies = tempDir("sw2-shim-copies-");
   const [mine, theirs] = [join(copies, "S0"), join(copies, "S1")];
-  real("worktree", "add", "-q", "-b", "task/l1-t1", mine);
-  real("worktree", "add", "-q", "-b", "task/l1-t2", theirs);
+  h.git(root, "worktree", "add", "-q", "-b", "task/l1-t1", mine);
+  h.git(root, "worktree", "add", "-q", "-b", "task/l1-t2", theirs);
   const scratch = tempDir("sw2-shim-scratch-");
   execFileSync("git", ["-C", scratch, "init", "-q"]);
-  const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-shim-own-copy-state-"))!;
-  const git = (cwd: string, ...args: string[]) =>
-    shimGit(dir, args, { cwd, env: { ...process.env, SEATWORKS_WORKTREE: mine } });
+  // The env Paseo opens a Peer's session with in its copy: the desk names that copy, and puts the shim first on PATH.
+  const { env } = h.runtime.sessionOpen({
+    agentId: "peer",
+    reason: "create",
+    provider: "sw2-peer-claude",
+    cwd: mine,
+    env: {},
+  });
+  const dir = env.PATH!.split(delimiter)[0]!;
+  const git = (cwd: string, ...args: string[]) => shimGit(dir, args, { cwd, env: { ...pathFirst(dir), ...env } });
   for (const [where, cwd, args] of [
     ["its own copy", mine, ["status"]],
     ["its own copy, named from a folder inside it", join(mine, "."), ["log", "--oneline"]],

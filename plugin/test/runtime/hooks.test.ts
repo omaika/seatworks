@@ -9,6 +9,7 @@ import { seatDir } from "../../server/catalog/seat/seats.ts";
 import { home, stateRoot } from "../../server/core/paths.ts";
 import type { AgentConfig } from "../../server/core/ports.ts";
 import { projectOf } from "../../server/desk/project/project.ts";
+import { escaped } from "../gates.ts";
 import { tempDir } from "../tempdir.ts";
 import { harness } from "./harness.ts";
 
@@ -102,14 +103,14 @@ test("a seat as Paseo creates, opens and archives it: prompt, key, seat director
   );
   assert.match(
     rules(),
-    new RegExp(`^@${join(root, "AGENTS.md")}$`, "m"),
+    new RegExp(`^@${escaped(join(root, "AGENTS.md"))}$`, "m"),
     "a Claude seat takes in the project's AGENTS.md, though its path holds a word the Lead must not see",
   );
   writeFileSync(join(root, "CLAUDE.md"), "Use npm.\n");
   open("agent-7", "resume", {}, root);
   assert.match(
     rules(),
-    new RegExp(`^@${join(root, "AGENTS.md")}$`, "m"),
+    new RegExp(`^@${escaped(join(root, "AGENTS.md"))}$`, "m"),
     "and still takes it in beside the project's CLAUDE.md, since its Seatworks block is there, where Claude would read CLAUDE.md alone",
   );
   writeFileSync(join(root, "CLAUDE.md"), "Use npm.\n\n@AGENTS.md\n");

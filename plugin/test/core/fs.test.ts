@@ -314,7 +314,10 @@ test("where two paths land is one comparison the whole plugin shares: Windows' o
   symlinkSync(root, alias);
   assert.equal(samePath(dir, join(alias, "content")), true, "one folder reached two ways is the one folder");
   assert.equal(samePath(dir, join(root, "other")), false, "and two names of two places are not");
-  assert.equal(samePath(dir.toUpperCase(), dir), false, "spelling counts where the platform counts it");
+  for (const on of ["linux", "darwin"]) {
+    Object.defineProperty(process, "platform", { value: on, configurable: true });
+    assert.equal(samePath(dir.toUpperCase(), dir), false, `spelling counts where the platform counts it, as on ${on}`);
+  }
 
   Object.defineProperty(process, "platform", { value: "win32", configurable: true });
   assert.equal(samePath(dir.toUpperCase(), dir), true, "and does not where Windows spells a path back its own way");
@@ -348,7 +351,14 @@ test("where a path lands is a form of its own, which a caller may index by, and 
   assert.equal(samePath(missing, missing), true);
   assert.notEqual(landsAt(missing), landsAt(join(root, "nor-there")), "and two of those land apart");
 
-  assert.notEqual(landsAt(dir.toUpperCase()), landsAt(dir), "spelling counts where the platform counts it");
+  for (const on of ["linux", "darwin"]) {
+    Object.defineProperty(process, "platform", { value: on, configurable: true });
+    assert.notEqual(
+      landsAt(dir.toUpperCase()),
+      landsAt(dir),
+      `spelling counts where the platform counts it, as on ${on}`,
+    );
+  }
   Object.defineProperty(process, "platform", { value: "win32", configurable: true });
   assert.equal(landsAt(dir.toUpperCase()), landsAt(dir), "and not where Windows spells a path back its own way");
   assert.equal(samePath(dir.toUpperCase(), dir), true, "the one rule, whichever way a caller reaches it");

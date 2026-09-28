@@ -6,6 +6,8 @@ import { contracts } from "../../shared/rpc.ts";
 import type { Layer } from "../../shared/settings.ts";
 import { settle } from "./fake-timeline.ts";
 import { harness, laneWithPeer } from "./harness.ts";
+import { can, providerId, seatOf } from "../../server/catalog/kit/roles.ts";
+import type { RoleSpec } from "../../server/catalog/kit/kit.ts";
 
 test("what the watch sees reaches whoever supervises, the Team tab shows what waits for somebody to be seated, and a call its harness refused is recorded though it never reached the desk", async (t) => {
   const { h, sup, timeline } = await laneWithPeer();
@@ -120,22 +122,96 @@ test("the Team tab marks every seat that runs with no OS sandbox, the Supervisor
   );
 });
 
-test("the Team tab marks the Watcher where its agent has no OS sandbox, and a sandboxed Watcher shows nothing new", async (t) => {
-  const { h } = await laneWithPeer();
-  const watcher = h.add("sw2-watcher-claude/claude-opus-5", h.root, "watcher");
+test("the Team tab marks a seat of every role the kit has where its agent has no OS sandbox, and a sandboxed one shows nothing new", async (t) => {
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
   t.after(() => Object.defineProperty(process, "platform", platform));
-  const seen = async (on: NodeJS.Platform) => {
-    Object.defineProperty(process, "platform", { ...platform, value: on });
-    const flow = await h.rpc(contracts.flow, { project: h.project.slug });
-    Object.defineProperty(process, "platform", platform);
-    assert.ok("watch" in flow);
-    return [flow.watch.seat?.id, sandboxLine(flow.watch.seat)];
+  // One machine per agent, a seat of every role the kit has on it, each seated as its first capability here says.
+  const machine = async (agent: string, model: string) => {
+    const h = harness();
+    const kit = h.runtime.kit;
+    h.projectSettings({ roles: Object.fromEntries(kit.roles.map((role) => [role.role, { harness: agent }])) });
+    const seated: { role: RoleSpec; id: string }[] = [];
+    const lanes: string[] = [];
+    const by = (capability: string) => seated.find((each) => can(each.role, capability))!;
+    const added = async (role: RoleSpec) => h.add(`${providerId(kit, role.role, agent)}/${model}`, h.root, role.role);
+    // The seat on the task a Lead's call adds, as the desk seats it.
+    const onTask = async (role: RoleSpec, tool: string, args: Record<string, unknown>) => {
+      const lead = by("lead");
+      const before = new Set(Object.keys(h.ledger().tasks));
+      const reply = await h.call(lead.id, lead.role.role, tool, args);
+      await h.tick();
+      const task = Object.values(h.ledger().tasks).find((each) => !before.has(each.id));
+      assert.ok(task?.peer, `a ${agent} ${role.role} was seated: ${JSON.stringify(reply)}`);
+      return task.peer;
+    };
+    const task = { goal: "g", acceptance: ["a"], hints: ["a.txt"], outOfScope: ["the rest of the repository"] };
+    const seating = {
+      supervise: added,
+      lead: async (role: RoleSpec) => {
+        const boss = by("supervise");
+        const reply = await h.call(boss.id, boss.role.role, "open_lane", {
+          title: role.label,
+          outcome: "a.txt changes",
+          acceptance: ["a"],
+          outOfScope: ["anything else in the repository"],
+          role: role.role,
+        });
+        const opened = Object.values(h.ledger().lanes).find((each) => !lanes.includes(each.id));
+        assert.ok(opened?.lead, `a ${agent} ${role.role} was seated: ${JSON.stringify(reply)}`);
+        lanes.push(opened.id);
+        return opened.lead;
+      },
+      write: (role: RoleSpec) =>
+        onTask(role, "add_tasks", { tasks: [{ ...task, key: role.role, title: role.label, role: role.role }] }),
+      review: (role: RoleSpec) => onTask(role, "start_review", { focus: "Is it right?", role: role.role }),
+      judge: added,
+    } as const;
+    // Kit order may name a Peer before its Lead, so each capability is seated after those it needs.
+    for (const [capability, seat] of Object.entries(seating))
+      for (const role of kit.roles)
+        if (!seated.some((each) => each.role === role) && can(role, capability))
+          seated.push({ role, id: await seat(role) });
+    const unseatable = kit.roles.filter((role) => !seated.some((each) => each.role === role));
+    assert.deepEqual(
+      unseatable.map((role) => [role.role, role.can]),
+      [],
+      "every role the kit has was seated: a capability no seat here takes needs a seat built for it",
+    );
+    for (const { role, id } of seated) {
+      const seat = seatOf(kit, h.agents.get(id)!.provider);
+      assert.deepEqual([seat?.role, seat?.harness.id], [role, agent], `a ${agent} ${role.role}`);
+    }
+    const ids = seated.map((each) => each.id);
+    const seen = async (on: NodeJS.Platform) => {
+      Object.defineProperty(process, "platform", { ...platform, value: on });
+      const flow = await h.rpc(contracts.flow, { project: h.project.slug, open: lanes });
+      Object.defineProperty(process, "platform", platform);
+      assert.ok("lanes" in flow);
+      const shown = new Map(
+        [
+          ...flow.supervisors,
+          ...flow.lanes.flatMap((lane) => [lane.lead, ...lane.tasks.map((task) => task.peer)]),
+          flow.watch.seat,
+        ].flatMap((seat) => (seat ? [[seat.id, seat] as const] : [])),
+      );
+      return ids.map((id) => [shown.get(id)?.id, sandboxLine(shown.get(id) ?? null)]);
+    };
+    return { ids, seen };
   };
-  // Claude has an OS sandbox on macOS and Linux, and none on Windows.
-  assert.deepEqual(await seen("win32"), [
-    watcher,
-    "Unsandboxed: its shell commands can read and write whatever your account can",
-  ]);
-  assert.deepEqual(await seen("darwin"), [watcher, null]);
+  const line = "Unsandboxed: its shell commands can read and write whatever your account can";
+  // Claude has an OS sandbox on macOS and Linux and none on Windows; Codex has one on all three.
+  const grid = [
+    ["claude", "claude-opus-5", { win32: line, darwin: null, linux: null }],
+    ["codex", "gpt-5.5", { win32: null, darwin: null, linux: null }],
+  ] as const;
+  // A harness owns the machine's HOME, so each is read before the next is built.
+  for (const [agent, model, lines] of grid) {
+    const { ids, seen } = await machine(agent, model);
+    for (const [on, expected] of Object.entries(lines))
+      assert.deepEqual(
+        await seen(on as NodeJS.Platform),
+        ids.map((id) => [id, expected]),
+        `a ${agent} seat of every role alike on ${on}`,
+      );
+  }
 });

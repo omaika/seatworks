@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { stateRoot } from "../../server/core/paths.ts";
 import { sentBy } from "../../server/core/sent-by.ts";
 import { contracts } from "../../shared/rpc.ts";
-import { tempDir } from "../tempdir.ts";
+import { escaped, heldGate } from "../gates.ts";
 import { harness, laneWithPeer } from "./harness.ts";
 import { book } from "./noticed.ts";
 
@@ -275,12 +275,11 @@ test("a Peer that is gone is found past the first page of agents, its Lead told,
 });
 
 test("a call that runs longer than a seat can wait is answered once by mail, and the turn it ends is not silence", async (t) => {
-  const go = join(tempDir("sw2-slow-"), "go");
-  t.after(() => writeFileSync(go, ""));
+  const held = heldGate(t);
   const h = harness();
   const sup = h.add(SUPERVISOR, h.root, "sup");
   // The gate waits for the test, so each call is still being worked on for as long as the test needs.
-  const gate = `until [ -f ${go} ]; do sleep 0.05; done`;
+  const gate = held.command;
   await h.call(sup, "supervisor", "set_project", { gate });
   const { lead, lane: opened } = await lane(h, sup, "Slow");
   const call = (id: string, agent: string, role: string, tool: string, args: Record<string, unknown>) =>
@@ -294,20 +293,20 @@ test("a call that runs longer than a seat can wait is answered once by mail, and
   ]);
   assert.match(first.text, /still working on report/);
   assert.match(again.text, /already running/);
-  writeFileSync(go, "");
+  held.release();
   assert.ok(await within(5000, () => /ANSWER to your report call/.test(heard(h, lead))), "answered as mail");
   assert.equal(readdirSync(join(h.project.state, "gates")).filter((name) => name.startsWith("L1-")).length, 1);
   assert.equal(heard(h, lead).split("ANSWER to your report call").length - 1, 1, "once, for both calls");
   assert.match(heard(h, sup), /REPORT L1/);
 
   // An answer promised as mail that the outbox cannot take stays promised, so the next start still owns up to it.
-  rmSync(go);
+  held.arm();
   const errors = t.mock.method(console, "error", () => {});
   const post = t.mock.method(h.runtime.outbox, "post", async () => {
     throw new Error("the disk is full");
   });
   assert.match((await call("r3", lead, "lead", "report", report)).text, /still working on report/);
-  writeFileSync(go, "");
+  held.release();
   const said = () => errors.mock.calls.map((line) => line.arguments.map(String).join(" ")).join("\n");
   assert.ok(await within(5000, () => /could not be mailed/.test(said())), "reported, and the desk goes on");
   const kept = JSON.parse(readFileSync(join(stateRoot(), "intents.json"), "utf-8")) as {
@@ -320,7 +319,7 @@ test("a call that runs longer than a seat can wait is answered once by mail, and
   post.mock.restore();
   errors.mock.restore();
 
-  rmSync(go);
+  held.arm();
   await h.call(sup, "supervisor", "set_project", { gateOn: "task" });
   await h.call(lead, "lead", "add_tasks", { tasks: [task("Work")] });
   const peer = h.ledger().tasks["L1-T1"]!.peer!;
@@ -334,9 +333,9 @@ test("a call that runs longer than a seat can wait is answered once by mail, and
   await h.endTurn(peer, "handed back, ending my turn as told");
   assert.equal(h.ledger().tasks["L1-T1"]!.silent, 0, "a call still being worked on is not silence");
   assert.doesNotMatch(heard(h, peer), /without calling done or ask/);
-  writeFileSync(go, "");
+  held.release();
   assert.ok(await within(5000, () => h.ledger().tasks["L1-T1"]!.status === "done"));
-  assert.match(heard(h, lead), new RegExp(`Gate: ${gate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} passed`));
+  assert.match(heard(h, lead), new RegExp(`Gate: ${escaped(gate)} passed`));
 });
 
 test("mail never reaches a running seat inside its turn, whatever its agent: it waits for the turn's end, then comes as one", async (t) => {
@@ -397,7 +396,7 @@ test("with the Human out of the loop, a Lead's ask nobody answers in time goes b
   assert.match(
     heard(h, lead),
     new RegExp(
-      `NO ANSWER to your ask ${id} in 21 minutes: Keep the old endpoint\\?\\n\\nNext: Settle it yourself from ${join(h.project.state, "CONTEXT.md")}, your directive and the code`,
+      `NO ANSWER to your ask ${id} in 21 minutes: Keep the old endpoint\\?\\n\\nNext: Settle it yourself from ${escaped(join(h.project.state, "CONTEXT.md"))}, your directive and the code`,
     ),
   );
   assert.match(heard(h, sup), new RegExp(`LAPSED ${id} from the Lead of L1: unanswered for 21 minutes`));

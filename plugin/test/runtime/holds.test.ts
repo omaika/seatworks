@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { settle } from "./fake-timeline.ts";
 import { harness } from "./harness.ts";
+import { escaped, gateStep } from "../gates.ts";
 import { tempDir } from "../tempdir.ts";
 
 type Harness = ReturnType<typeof harness>;
@@ -304,10 +305,14 @@ test("the project's setup runs in each copy the desk makes before its seat start
   const brief = (id: string) => h.agents.get(h.ledger().tasks[id]!.peer!)!.prompt ?? "";
   assert.match(brief("L1-T1"), /^Setup: node -e [^\n]* ran in this copy before you started, and passed in \d+s\.$/m);
 
-  await h.call(sup, "supervisor", "set_project", { setup: "echo no network >&2; exit 3" });
+  const failing = gateStep("complain", "no network", "3");
+  await h.call(sup, "supervisor", "set_project", { setup: failing });
   await h.call(lead, "lead", "add_tasks", { tasks: [planned("b", "B", { holds: ["test/**"], parallel: true })] });
   assert.match(
     brief("L1-T2"),
-    /^Setup: echo no network >&2; exit 3 ran in this copy before you started and failed with exit 3; its log is [^\n]*setup-S\d+-\d+\.log, which ends:\n\$ echo no network >&2; exit 3\nno network$/m,
+    new RegExp(
+      `^Setup: ${escaped(failing)} ran in this copy before you started and failed with exit 3; its log is [^\\n]*setup-S\\d+-\\d+\\.log, which ends:\\n\\$ ${escaped(failing)}\\nno network$`,
+      "m",
+    ),
   );
 });

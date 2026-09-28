@@ -334,7 +334,7 @@ test("a Claude seat reads the project's own CLAUDE.md and takes in its AGENTS.md
   materialize(kit, team, "peer", home, own);
   assert.match(
     readFileSync(join(seatDir(kit, peer.role, peer.harness, home, own), "CLAUDE.md"), "utf-8"),
-    new RegExp(`^@${join(root, "AGENTS.md")}$`, "m"),
+    new RegExp(`^@${join(root, "AGENTS.md").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"),
     "Claude never reads AGENTS.md from an added directory, so the seat's own rules take it in",
   );
 });

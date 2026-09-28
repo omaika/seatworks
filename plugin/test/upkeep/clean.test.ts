@@ -19,6 +19,7 @@ import { contentRoot, stateRoot, worktreeRoot } from "../../server/core/paths.ts
 import { writeJson } from "../../server/core/store.ts";
 import { emptyLedger } from "../../server/domain/ledger.ts";
 import { removeGarbage, scanGarbage } from "../../server/upkeep/clean.ts";
+import { escaped } from "../gates.ts";
 import { makeKit } from "../kit.ts";
 import { reported } from "../console.ts";
 import { noRead } from "../no-read.ts";
@@ -194,7 +195,7 @@ test("clean up lists only what nothing will use again: seats nothing will sit in
   readProfilesAgain();
   assert.match(
     said(),
-    new RegExp(`${join(home, ".claude", "profiles")} is there and would not be read`),
+    new RegExp(`${escaped(join(home, ".claude", "profiles"))} is there and would not be read`),
     "the owner is told which folder stopped the sweep, rather than being left with a cleanup that quietly does nothing",
   );
 
@@ -219,7 +220,8 @@ test("clean up lists only what nothing will use again: seats nothing will sit in
       ? "a seat's folder that lists but whose entries will not be looked at may link to any copy of the guides, so none is offered"
       : "this platform makes no folder that lists while its entries will not be looked at, so the scan runs as it always does",
   );
-  if (stattable) assert.match(said(), new RegExp(`${join(current, "kit", "")}[^\n]* is there and would not be read`));
+  if (stattable)
+    assert.match(said(), new RegExp(`${escaped(join(current, "kit", ""))}[^\n]* is there and would not be read`));
   stattable?.();
 
   const seatsOfOmp = join(home, ".omp", "seats");
