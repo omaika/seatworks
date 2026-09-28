@@ -11,7 +11,7 @@ import { worktreeRoot } from "../../core/paths.ts";
 import type { SeatView, Seats, Workspaces } from "../../core/ports.ts";
 import { type Project, projectOf } from "../../desk/project/project.ts";
 import { loadLedger, readLedger } from "../../desk/store/ledger.ts";
-import { flowView } from "../../desk/views/flow.ts";
+import { flowView, judgeSeat } from "../../desk/views/flow.ts";
 import { statusPage } from "../../desk/views/status.ts";
 import type { Added, Paths, ProjectRow, Removed, StatusView } from "../../../shared/views.ts";
 import type { FlowRead, WatchView } from "../../../shared/flow-views.ts";
@@ -33,7 +33,7 @@ type ProjectsDeps = {
   seats: Seats;
   workspaces: Workspaces;
   held: () => { to: string; text: string; at: number; until: number }[];
-  watch: (project: Project, seats: Iterable<SeatView>) => WatchView;
+  watch: (project: Project, seats: Iterable<SeatView>) => Omit<WatchView, "seat">;
   changed: () => void;
   reconcile: () => Promise<void>;
   adopt: (project: Project, draft: unknown) => Promise<string | undefined>;
@@ -170,7 +170,10 @@ export class ProjectsPanel implements ProjectsRpc {
     if (!project) return { error: unknownProject(slug) };
     const seats = new Map((await this.deps.seats.open()).map((seat) => [seat.id, seat]));
     const roles = new Map(
-      this.deps.kit.roles.map((role) => [role.role, { label: role.label, supervises: can(role, "supervise") }]),
+      this.deps.kit.roles.map((role) => [
+        role.role,
+        { label: role.label, supervises: can(role, "supervise"), judges: can(role, "judge") },
+      ]),
     );
     const seated = [...seats.values()]
       .map((seat) => ({ seat, as: seatOf(this.deps.kit, seat.provider) }))
@@ -181,9 +184,10 @@ export class ProjectsPanel implements ProjectsRpc {
         role: as!.role.role,
         unsandboxed: !as!.harness.sandboxedOn?.some((platform) => platform === process.platform),
       }));
-    const view = flowView(project, readLedger(project.state), seats, Date.now(), new Set(open ?? []), roles, seated);
+    const now = Date.now();
+    const view = flowView(project, readLedger(project.state), seats, now, new Set(open ?? []), roles, seated);
     // Live state, but part of the revision, or the card freezes whenever the ledger does not change.
-    const watch = this.deps.watch(project, seats.values());
+    const watch = { ...this.deps.watch(project, seats.values()), seat: judgeSeat(seats, now, roles, seated) };
     const revision = createHash("sha1")
       .update(`${view.revision}${JSON.stringify(watch)}`)
       .digest("hex")

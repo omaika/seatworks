@@ -41,7 +41,7 @@ export function seatLine(seat: FlowSeat | null, answers: Answers): { tone: Tone;
 export const sandboxLine = (seat: FlowSeat | null): string | null =>
   seat?.unsandboxed ? "Unsandboxed: its shell commands can read and write whatever your account can" : null;
 
-/** Seats the Team tab names only to mark them, the supervising and the kept: those unsandboxed, so a sandboxed one shows nothing new. */
+/** Seats the Team tab names only to mark them, the supervising, the judging and the kept: those unsandboxed, so a sandboxed one shows nothing new. */
 export const marked = <Seat extends FlowSeat>(seats: Seat[]): Seat[] => seats.filter((seat) => seat.unsandboxed);
 
 /** A task in one short phrase and a tone: held, waiting, handed back, else what its seat does. */

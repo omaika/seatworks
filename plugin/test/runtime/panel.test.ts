@@ -119,3 +119,23 @@ test("the Team tab marks every seat that runs with no OS sandbox, the Supervisor
     "a Supervisor the tab names nowhere else shows only to be marked",
   );
 });
+
+test("the Team tab marks the Watcher where its agent has no OS sandbox, and a sandboxed Watcher shows nothing new", async (t) => {
+  const { h } = await laneWithPeer();
+  const watcher = h.add("sw2-watcher-claude/claude-opus-5", h.root, "watcher");
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  t.after(() => Object.defineProperty(process, "platform", platform));
+  const seen = async (on: NodeJS.Platform) => {
+    Object.defineProperty(process, "platform", { ...platform, value: on });
+    const flow = await h.rpc(contracts.flow, { project: h.project.slug });
+    Object.defineProperty(process, "platform", platform);
+    assert.ok("watch" in flow);
+    return [flow.watch.seat?.id, sandboxLine(flow.watch.seat)];
+  };
+  // Claude has an OS sandbox on macOS and Linux, and none on Windows.
+  assert.deepEqual(await seen("win32"), [
+    watcher,
+    "Unsandboxed: its shell commands can read and write whatever your account can",
+  ]);
+  assert.deepEqual(await seen("darwin"), [watcher, null]);
+});

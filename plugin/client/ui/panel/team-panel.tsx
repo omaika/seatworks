@@ -190,7 +190,7 @@ function TeamList({
   return (
     <View style={{ gap: 10 }}>
       <Text style={styles.head}>{`${slug} · ${working.length} line${working.length === 1 ? "" : "s"}`}</Text>
-      {marked(flow.supervisors).map((seat) => (
+      {marked([...flow.supervisors, ...(flow.watch.seat ? [flow.watch.seat] : [])]).map((seat) => (
         <SeatLine
           key={seat.id}
           who={seatName(seat)}

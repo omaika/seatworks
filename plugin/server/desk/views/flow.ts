@@ -13,8 +13,8 @@ import type { Project } from "../project/project.ts";
 
 const LANE_CAP = 50;
 
-/** The kit's roles as the Team tab names seats: each role's label, and whether it supervises. */
-type FlowRoles = ReadonlyMap<string, { label: string; supervises: boolean }>;
+/** The kit's roles as the Team tab names seats: each role's label, and whether it supervises or judges for the watch. */
+type FlowRoles = ReadonlyMap<string, { label: string; supervises: boolean; judges: boolean }>;
 
 /** Each seat's role, as Paseo has it for a seat seated now and as the ledger recorded it for one gone. */
 type RoleOf = (id: string) => string | undefined;
@@ -208,6 +208,19 @@ function supervisorsOf(
     show(agent.id, agent.role);
   }
   return [...shown.values()].map((entry) => entry.seat);
+}
+
+/** The project's seat seated now that judges for the watch, the one heard from last; `seated` is newest first. */
+export function judgeSeat(
+  seats: Map<string, SeatView>,
+  now: number,
+  roles: FlowRoles,
+  seated: Seated[],
+): FlowSeat | null {
+  const found = seated.find((each) => roles.get(each.role)?.judges);
+  return found
+    ? seatOf(seats, found.id, { label: roles.get(found.role)!.label, unsandboxed: found.unsandboxed }, now)
+    : null;
 }
 
 /** `seated` is the project's seats Paseo has now, newest first, with their roles: the ledger records a seat only after its first successful tool call. */

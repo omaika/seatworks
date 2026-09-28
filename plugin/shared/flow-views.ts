@@ -106,8 +106,11 @@ export type WatchJudge = z.infer<typeof WatchJudge>;
  */
 const WatchCases = z.object({ waiting: z.number(), expired: z.number(), dropped: z.number(), superseded: z.number() });
 export type WatchCases = z.infer<typeof WatchCases>;
-/** What the code noticed about the seats and nobody has marked yet, the cases left unjudged, and who answers the watch's questions. */
-const WatchView = z.object({ incidents: WatchCounts, cases: WatchCases, judge: WatchJudge });
+/**
+ * What the code noticed about the seats and nobody has marked yet, the cases left unjudged, who answers the watch's
+ * questions, and the seat seated now that judges for it, if any.
+ */
+const WatchView = z.object({ incidents: WatchCounts, cases: WatchCases, judge: WatchJudge, seat: FlowSeat.nullable() });
 export type WatchView = z.infer<typeof WatchView>;
 const FlowView = z.object({
   project: z.string(),

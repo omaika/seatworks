@@ -54,7 +54,7 @@ function unjudged(project: Project, team: Team, from: number): WatchCases {
  * What the panel shows of a project's watch: how many incidents stand where, how many cases went unjudged, and who
  * answers its questions; what closed or went unjudged counts since the Human last read the report.
  */
-export function watchView(project: Project, team: Team, kit: Kit, now = Date.now()): WatchView {
+export function watchView(project: Project, team: Team, kit: Kit, now = Date.now()): Omit<WatchView, "seat"> {
   const from = seenAt(project) ?? 0;
   const incidents = { told: 0, held: 0, recorded: 0, closed: 0 };
   for (const item of Object.values(loadIncidents(project.state).items)) {
