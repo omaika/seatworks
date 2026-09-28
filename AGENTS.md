@@ -57,16 +57,20 @@ The plugin **serves** SLP so it works better with Paseo. It must **never constra
   `land_lane`. No seat pulls, checks out, switches, stashes, updates a ref or pushes: the git shim
   refuses it on every agent however it is spelled, and each agent's own rules too. The shim guards
   against mistakes, not intent: what git itself starts (hooks, `rebase --exec`, `bisect run`) and a
-  git named by its full path run the real git. So a writing seat always stands on its task's branch,
-  where it may merge, rebase, reset or cherry-pick; each role's own rules refuse those four to seats
-  that do not write. The shim also refuses git whose work tree is not the seat's own copy, so a seat
-  never touches the Human's checkout or another seat's copy. The desk's own git runs no hooks,
-  fsmonitor or command the repository's config names, since a seat could have planted one. Each copy
-  the desk makes gets the ignored files the project's `.worktreeinclude` names and then the
-  project's `setup` command, before its seat starts, and is locked in git while its work goes on. A
-  Lead may `reseat` a task: a fresh Peer on the same branch and copy, briefed from the record. A base
-  that conflicts with a lane is never left half merged: its Lead has the facts, and the Supervisor
-  chooses whose task takes the base in on its own branch.
+  git named by its full path run the real git. On Windows it catches git run through a shell, which
+  finds its batch file or its Git Bash script, but not git spawned directly as a process, which runs
+  the real git; the same holds for the `gh` and `paseo` a seat's `PATH` refuses. So a writing seat
+  always stands on its task's branch, where it may merge, rebase, reset or cherry-pick; each role's
+  own rules refuse those four to seats that do not write. Only when `SEATWORKS_WORKTREE` is set, as
+  the desk sets it to each seat's own copy, does the shim also refuse git whose work tree is another
+  worktree of the same repository, so a seat never touches the Human's checkout or another seat's
+  copy; a repository of any other making is not refused. The desk's own git runs no hooks, fsmonitor
+  or command the repository's config names, since a seat could have planted one. Each copy the desk
+  makes gets the ignored files the project's `.worktreeinclude` names and then the project's `setup`
+  command, before its seat starts, and is locked in git while its work goes on. A Lead may `reseat` a
+  task: a fresh Peer on the same branch and copy, briefed from the record. A base that conflicts with
+  a lane is never left half merged: its Lead has the facts, and the Supervisor chooses whose task
+  takes the base in on its own branch.
 - **The Human in the loop is a setting**, `hitl.on`, off by default. Off, the concept goes to the
   Human through the Supervisor's grilling, and so does a change to what a lane is for or what it
   costs past its appetite; the Supervisor decides the rest, answers the seats'

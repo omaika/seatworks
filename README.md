@@ -108,13 +108,13 @@ verdict is evidence: the Lead sends reproduced P0 to P2 back, carries P3 in its 
 Any role can sit on any of these five agents. You pick one per role in the panel, with its model and
 thinking level where the agent offers them.
 
-| Agent       | Before its first seat                                                                                   | Sandbox |
-| ----------- | ------------------------------------------------------------------------------------------------------- | ------- |
-| Claude Code | `claude` signed in once, outside any seat; every Claude seat shares that login                          | yes     |
-| Codex       | `codex login` once; the `codex` CLI must be on the machine that runs the daemon                         | yes     |
-| Pi          | `pi` signed in, and `pi install npm:pi-mcp-adapter` once: the adapter is how a Pi seat reaches the desk | no      |
-| Oh My Pi    | `omp` signed in once, outside any seat (`/login`)                                                       | no      |
-| OpenCode    | `opencode auth login` once, outside any seat                                                            | no      |
+| Agent       | Before its first seat                                                                                   | Sandbox                 |
+| ----------- | ------------------------------------------------------------------------------------------------------- | ----------------------- |
+| Claude Code | `claude` signed in once, outside any seat; every Claude seat shares that login                          | yes, but not on Windows |
+| Codex       | `codex login` once; the `codex` CLI must be on the machine that runs the daemon                         | yes                     |
+| Pi          | `pi` signed in, and `pi install npm:pi-mcp-adapter` once: the adapter is how a Pi seat reaches the desk | no                      |
+| Oh My Pi    | `omp` signed in once, outside any seat (`/login`)                                                       | no                      |
+| OpenCode    | `opencode auth login` once, outside any seat                                                            | no                      |
 
 No agent is sent mail inside a running turn: a seat's letters wait for its turn to end, or come with
 the reply to its next desk call, as one message that lists them first. Only holding a lane cuts a
@@ -163,6 +163,42 @@ Seats started before this version are named, in each project.
 
 **Clean up** lists seat folders, working copies and copies nothing uses any more, and removes only
 what you pick.
+
+## Native Windows
+
+Seatworks runs on Windows 10 and 11 directly: the Paseo daemon, every seat and git all run on
+Windows, not inside WSL2, which is not the target.
+
+**What you need.** Everything under Install, and:
+
+- Git for Windows, with `git.exe` on the `PATH` the daemon starts with. Every seat's git goes through
+  the plugin's git shim to that `git.exe`, and seats that run commands in Git Bash use the Git Bash it
+  brings. Without that `git.exe`, seats get no git shim.
+- `python3` on that `PATH` too, if the Lead's `ultra-review` skill is to run.
+
+**Install** as on any machine, from PowerShell in the clone:
+
+```powershell
+cd plugin
+npm install
+paseo plugin install "$PWD"
+```
+
+What the plugin keeps lives under `.local\share\seatworks-v3\` in your user folder, and each seat's
+team server reaches the desk over a named pipe rather than a socket file.
+
+**Agents.** On Windows, Claude Code and Codex work for every role; choose one of them for each role
+in the panel. Pi, Oh My Pi and OpenCode are not supported on Windows yet.
+
+**Sandbox.** Codex runs a seat's commands in its own Windows sandbox. Claude Code has no sandbox on
+Windows, so a Claude seat there is an unsandboxed seat: it still starts, for every role, and runs
+with no OS sandbox, guarded only by the git shim and its role's own rules. The **Team** tab says so
+on each such seat: "Unsandboxed: its shell commands can read and write whatever your account can".
+
+**The git shim on Windows** catches git, `gh` and `paseo` run through a shell, which finds the
+shim's batch file or its Git Bash script. A git, `gh` or `paseo` an agent starts directly as a
+process, not through a shell, runs the real one, since Windows starts only a program there, not a
+script. Claude Code's and Codex's own rules refuse the same commands too.
 
 ## First run
 
