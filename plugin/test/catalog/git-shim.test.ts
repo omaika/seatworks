@@ -636,6 +636,12 @@ test("a seat's git leaves a repository of another making, as the project's own t
     !refused(inInner.at, ["checkout", "-q", "other"], { ...env, SEATWORKS_WORKTREE: inner }),
     "and a seat's own copy inside the Human's checkout is still its own: the nearest copy decides",
   );
+  const besideTheirs = nestedIn(`${theirs}-fixture`);
+  assert.ok(
+    !refused(besideTheirs.at, ["checkout", "-q", "other"]),
+    "a repository whose path only begins with another copy's lies outside it",
+  );
+  assert.equal(besideTheirs.branch(), "other");
   const before = fixture.real("for-each-ref", "--format=%(refname) %(objectname)");
   const passed = rows.filter(([, args]) => refused(fixture.root, args)).map(([why]) => why);
   assert.deepEqual(passed, [], "in the fixture, each runs as git would outside Seatworks");
@@ -693,5 +699,12 @@ test("a seat's git that cannot list a command's options refuses that command in 
     git(tempDir("sw2-shim-old-git-bare-"), "fetch", "--forc", "origin").stderr,
     /^git: refused/,
     "outside a repository there is no ref to move",
+  );
+  const fixture = tempDir("sw2-shim-old-git-fixture-");
+  execFileSync("git", ["-C", fixture, "init", "-q", "-b", "main"]);
+  assert.doesNotMatch(
+    git(fixture, "fetch", "--forc", "origin").stderr,
+    /^git: refused/,
+    "nor in a repository of another making, where no ref the project names can move",
   );
 });
