@@ -166,8 +166,9 @@ what you pick.
 
 ## Native Windows
 
-Seatworks runs on Windows 10 and 11 directly: the Paseo daemon, every seat and git all run on
-Windows, not inside WSL2, which is not the target.
+Seatworks runs on Windows directly: the Paseo daemon, every seat and git all run on Windows, not
+inside WSL2, which is not the target. Its full check runs on Windows Server in GitHub Actions
+(`windows-latest`), and the owner runs the check and one real lane on Windows 10/11.
 
 **What you need.** Everything under Install, and:
 
@@ -184,7 +185,8 @@ npm install
 paseo plugin install "$PWD"
 ```
 
-What the plugin keeps lives under `.local\share\seatworks-v3\` in your user folder, and each seat's
+What the plugin keeps lives under `.local\share\seatworks-v3\` in the folder `HOME` names when the
+daemon starts with `HOME` set, as Git Bash sets it, and in your user folder otherwise; each seat's
 team server reaches the desk over a named pipe rather than a socket file.
 
 **Agents.** On Windows, Claude Code and Codex work for every role; choose one of them for each role
@@ -198,7 +200,9 @@ on each such seat: "Unsandboxed: its shell commands can read and write whatever 
 **The git shim on Windows** catches git, `gh` and `paseo` run through a shell, which finds the
 shim's batch file or its Git Bash script. A git, `gh` or `paseo` an agent starts directly as a
 process, not through a shell, runs the real one, since Windows starts only a program there, not a
-script. Claude Code's and Codex's own rules refuse the same commands too.
+script. Claude Code's and Codex's own rules refuse `gh`, `paseo` and the usual spellings of git's
+push, pull, checkout, switch, update-ref, stash and a forced or deleting `git branch` too, not every
+spelling the shim refuses.
 
 ## First run
 

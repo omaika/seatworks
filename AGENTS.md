@@ -54,17 +54,21 @@ The plugin **serves** SLP so it works better with Paseo. It must **never constra
   one task and a Lead one lane; its superior ends it, never the desk.
 - **Branches are the desk's; a task branch is its Peer's.** The desk makes every branch and copy,
   merges a task the Lead `accept`s into its lane, and lands a lane on base at the Supervisor's
-  `land_lane`. No seat pulls, checks out, switches, stashes, updates a ref or pushes: the git shim
-  refuses it on every agent however it is spelled, and each agent's own rules too. The shim guards
+  `land_lane`. No seat pulls, checks out, switches, stashes or pushes, nor moves or deletes a branch
+  other than its own, a tag or HEAD: the git shim refuses each on every agent however it is spelled,
+  while making a new branch or tag, and fetching into a remote's own tracking refs, stay a seat's.
+  Each agent's own rules refuse only the usual spellings of push, pull, checkout, switch, update-ref,
+  stash and a forced or deleting `git branch`, and Pi has no command rules. The shim guards
   against mistakes, not intent: what git itself starts (hooks, `rebase --exec`, `bisect run`) and a
   git named by its full path run the real git. On Windows it catches git run through a shell, which
   finds its batch file or its Git Bash script, but not git spawned directly as a process, which runs
   the real git; the same holds for the `gh` and `paseo` a seat's `PATH` refuses. So a writing seat
   always stands on its task's branch, where it may merge, rebase, reset or cherry-pick; each role's
-  own rules refuse those four to seats that do not write. Only when `SEATWORKS_WORKTREE` is set, as
-  the desk sets it to each seat's own copy, does the shim also refuse git whose work tree is another
-  worktree of the same repository, so a seat never touches the Human's checkout or another seat's
-  copy; a repository of any other making is not refused. The desk's own git runs no hooks, fsmonitor
+  own rules refuse those four to seats that do not write, on every agent but Pi. Only when
+  `SEATWORKS_WORKTREE` is set, as the desk sets it to each seat's own copy, does the shim also refuse
+  git whose work tree is another worktree of the same repository, so a seat never touches another
+  seat's copy, nor the Human's checkout unless that is its own copy, as it is for the Supervisor, the
+  Watcher and a lane working there; a repository of any other making is not refused. The desk's own git runs no hooks, fsmonitor
   or command the repository's config names, since a seat could have planted one. Each copy the desk
   makes gets the ignored files the project's `.worktreeinclude` names and then the project's `setup`
   command, before its seat starts, and is locked in git while its work goes on. A Lead may `reseat` a
