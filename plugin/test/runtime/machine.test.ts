@@ -29,8 +29,12 @@ test("a Peer measuring holds the machine: the desk's gates wait, and whoever ask
 
   work({ "a.txt": "two\n" });
   const reporting = h.call(lead, "lead", "report", { summary: "done", ready: true });
+  // The gate reaches the queue on the desk's own time, so this waits on the clock rather than on a budget of ticks a
+  // loaded machine runs through before the desk gets there.
   const waits = async () => (await h.call(lead, "lead", "machine", {})).text.includes("1 waiting for the machine");
-  for (let i = 0; i < 200 && !(await waits()); i++) await new Promise((resolve) => setImmediate(resolve));
+  for (const end = Date.now() + 10_000; !(await waits());)
+    if (Date.now() > end) break;
+    else await new Promise((resolve) => setTimeout(resolve, 20));
   assert.ok(await waits(), "the lane's gate waits while the machine is held");
   const letGo = await h.call(peer, "peer", "machine", { hold: 0 });
   assert.equal(letGo.ok, true, letGo.text);

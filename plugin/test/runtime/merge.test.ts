@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../tempdir.ts";
 import { harness, laneWithPeer } from "./harness.ts";
+import { escaped, gateStep } from "../gates.ts";
 
 type Harness = ReturnType<typeof harness>;
 
@@ -35,7 +36,8 @@ async function within(ms: number, check: () => boolean): Promise<boolean> {
 test("a task beside others hands back what its lane would become: the lane brought in, its own changes, and a conflict left to its Peer", async () => {
   const { h, sup, lane } = await laneWithPeer();
   const lead = lane.lead!;
-  await h.call(sup, "supervisor", "set_project", { gate: "test -f shared.txt", gateOn: "task" });
+  const needsShared = gateStep("exists", "shared.txt");
+  await h.call(sup, "supervisor", "set_project", { gate: needsShared, gateOn: "task" });
   for (const [title, holds] of [
     ["Side", "c.txt"],
     ["Quotes", "d.txt"],
@@ -56,7 +58,11 @@ test("a task beside others hands back what its lane would become: the lane broug
     "each acceptance line beside the proof offered for it",
   );
   assert.doesNotMatch(handback, /Note:/, "shared.txt moved on the lane, not in this task's copy");
-  assert.match(handback, /Gate: test -f shared\.txt passed/, "the gate ran on what the lane would become");
+  assert.match(
+    handback,
+    new RegExp(`Gate: ${escaped(needsShared)} passed`),
+    "the gate ran on what the lane would become",
+  );
   h.git(side!.worktree!, "merge-base", "--is-ancestor", lane.branch, "HEAD");
   assert.equal(h.ledger().tasks["L1-T2"]!.handback!.gate!.sha, h.git(side!.worktree!, "rev-parse", "HEAD").trim());
 
@@ -157,11 +163,8 @@ test("a merge that cannot take its lane safely waits, says why, and goes round a
   const lane = h.ledger().lanes.L1!;
   const lead = lane.lead!;
   /** A gate that runs `then` once, the first time it runs after the test arms it. */
-  const gate = (then: string) =>
-    h.call(sup, "supervisor", "set_project", {
-      gate: `if [ -f ${armed} ]; then rm ${armed}; ${then}; fi`,
-      gateOn: "task",
-    });
+  const gate = (...then: string[]) =>
+    h.call(sup, "supervisor", "set_project", { gate: gateStep("armed", armed, ...then), gateOn: "task" });
   const merge = async (id: string) => {
     writeFileSync(armed, "");
     await h.call(lead, "lead", "accept", { task: id });
@@ -174,7 +177,7 @@ test("a merge that cannot take its lane safely waits, says why, and goes round a
     return h.ledger().tasks[id]!.status;
   };
 
-  await gate(`printf 'half\\n' >> ${join(lane.worktree!, "a.txt")}`);
+  await gate("append", join(lane.worktree!, "a.txt"), "half");
   const side = await handedBack(h, lead, "Side", "c.txt");
   // No task holds the lane's copy, so the lane branch is checked out there and moves with it.
   h.commit(lane.worktree!, "shared.txt", "moved\n");
@@ -187,8 +190,7 @@ test("a merge that cannot take its lane safely waits, says why, and goes round a
   await h.call(lead, "lead", "add_tasks", {
     tasks: [{ key: "w", title: "Writer", goal: "g", ...scope, hints: ["a.txt"] }],
   });
-  const move = `git update-ref refs/heads/${lane.branch} $(git -c user.name=t -c user.email=t@x commit-tree ${lane.branch}^{tree} -p ${lane.branch} -m race)`;
-  await gate(`cd ${lane.worktree} && ${move}`);
+  await gate("move-branch", lane.worktree!, lane.branch);
   const second = await handedBack(h, lead, "Two", "d.txt", "d.txt", "side\n");
   // The lane moves, so the merge gates again, and the gate's run sees the lane branch move under it.
   h.commitTo(lane.branch, "shared.txt", "moved again\n");
@@ -202,7 +204,7 @@ test("a merge that cannot take its lane safely waits, says why, and goes round a
   assert.equal(await again(second.id), "merged");
   assert.equal(h.git(h.root, "show", `${lane.branch}:d.txt`), "side\n");
 
-  await gate(`until [ -f ${go} ]; do sleep 0.05; done`);
+  await gate("wait", go);
   const prices = await handedBack(h, lead, "Prices", "p.txt", "p.txt", "prices\n");
   const quotes = await handedBack(h, lead, "Quotes", "q.txt", "p.txt", "quotes\n");
   // The lane moves, so Prices' merge gates again and is held there while Quotes' copy is left with work in it.
@@ -237,7 +239,7 @@ async function heldLanes(t: { after(fn: () => void): void }) {
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
   await h.call(sup, "supervisor", "set_project", {
-    gate: `if [ -f ${armed} ]; then while [ ! -f ${go} ]; do sleep 0.05; done; fi`,
+    gate: gateStep("armed", armed, "wait", go),
     gateOn: "task",
   });
   for (const title of ["One", "Two"])

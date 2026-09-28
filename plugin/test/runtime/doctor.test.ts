@@ -2,7 +2,7 @@
 import "../setup.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import type { AddressInfo } from "node:net";
 import { delimiter, join } from "node:path";
@@ -10,6 +10,7 @@ import { test } from "node:test";
 import type { z } from "zod";
 import { home } from "../../server/core/paths.ts";
 import { contracts } from "../../shared/rpc.ts";
+import { fakeBin } from "../fake-bin.ts";
 import { makeKit } from "../kit.ts";
 import { tempDir } from "../tempdir.ts";
 import { fakeIde } from "./code-fakes.ts";
@@ -33,20 +34,32 @@ test("the doctor over the panel names what this machine lacks for the team, a se
   const path = process.env.PATH;
   process.env.PATH = [bins, gitHome].join(delimiter);
   t.after(() => void (process.env.PATH = path));
+  // The doctor hands the probe this process's whole env, so a token the machine exported would log a seat in behind the
+  // test's back: every login this file asserts over is one it sets itself.
+  const token = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  t.after(() => {
+    if (token === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    else process.env.CLAUDE_CODE_OAUTH_TOKEN = token;
+  });
   const install = (...names: string[]) => {
-    for (const name of names) {
-      writeFileSync(join(bins, name), "#!/bin/sh\nexit 0\n");
-      chmodSync(join(bins, name), 0o755);
-    }
+    for (const name of names) fakeBin(bins, name, "");
   };
   // Claude as it answers `auth status`, exiting 1 when logged out: by a token in its env, or by the login the Human made
   // once outside any seat, which a seat's own settings folder reaches only with its secure storage pointed back home.
   const claudeAuth = () => {
-    const script = `#!/bin/sh
-if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || { [ "\${CLAUDE_SECURESTORAGE_CONFIG_DIR+set}" = set ] && [ -z "$CLAUDE_SECURESTORAGE_CONFIG_DIR" ] && [ -f "$HOME/.claude/logged-in" ]; }; then echo '{"loggedIn": true}'; else echo '{"loggedIn": false}'; exit 1; fi
-`;
-    writeFileSync(join(bins, "claude"), script);
-    chmodSync(join(bins, "claude"), 0o755);
+    fakeBin(
+      bins,
+      "claude",
+      `import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+const store = process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR;
+const here = store === "" && existsSync(join(homedir(), ".claude", "logged-in"));
+const loggedIn = Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN) || here;
+process.stdout.write(JSON.stringify({ loggedIn }));
+if (!loggedIn) process.exit(1);`,
+    );
   };
   const claudeLogin = (yes: boolean) => {
     const marker = join(home(), ".claude", "logged-in");

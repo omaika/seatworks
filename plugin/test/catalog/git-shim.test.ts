@@ -2,13 +2,67 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
+import type { TestContext } from "node:test";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { loadKit } from "../../server/catalog/kit/kit.ts";
+import { executableIn, pathDirs } from "../../server/core/paths.ts";
 import { seatBin } from "../../server/catalog/seat/seat-bin.ts";
 import { tempDir } from "../tempdir.ts";
 
 const PLUGIN = fileURLToPath(new URL("../..", import.meta.url));
+const WIN = process.platform === "win32";
+const COMSPEC = process.env.COMSPEC ?? "cmd.exe";
+
+/** The files one command takes in a seat's bin directory: on Windows the batch file its shells find beside the script Git Bash finds. */
+const filesFor = (name: string) => (WIN ? [name, `${name}.cmd`] : [name]);
+
+/**
+ * The shim in a seat's bin directory, started as a seat's own tools start a program. On Windows that has to be cmd with
+ * the batch file: Node cannot start a .cmd itself, and nothing else in that directory can be started at all.
+ */
+const shimGit = (dir: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) =>
+  WIN
+    ? spawnSync(COMSPEC, ["/d", "/c", "call", join(dir, "git.cmd"), ...args], { ...options, encoding: "utf-8" })
+    : spawnSync(join(dir, "git"), args, { ...options, encoding: "utf-8" });
+
+const shQuoted = (arg: string) => `'${arg.replaceAll("'", `'\\''`)}'`;
+const cmdQuoted = (arg: string) => (/[\s&|<>^"]/.test(arg) ? `"${arg.replaceAll('"', '""')}"` : arg);
+
+/** PATH with `dir` first, under the one spelling: Windows would read either of two keys, and a spread would leave both. */
+function pathFirst(dir: string): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const name of Object.keys(env)) if (/^path$/i.test(name)) delete env[name];
+  env.PATH = `${dir}${delimiter}${process.env.PATH ?? ""}`;
+  return env;
+}
+
+/**
+ * The shells a seat's own tools run a command line in, each with a word that puts a command second: cmd on Windows,
+ * beside the Git Bash that reads the script where it is on PATH, and sh elsewhere. The bin directory goes first on PATH.
+ * Git for Windows leaves its usr/bin off PATH unless its installer was told otherwise, so a run that reaches no sh says
+ * which half of the directory nothing exercised: a green job that quietly proved less is worse than one that says so.
+ */
+function shellsAt(dir: string, t: TestContext) {
+  const sh = WIN ? (executableIn(pathDirs(), "sh") ?? executableIn(pathDirs(), "bash")) : "/bin/sh";
+  if (!sh)
+    t.diagnostic(
+      "no sh or bash on PATH: nothing ran the extensionless script Git Bash reads, only the batch file cmd finds",
+    );
+  const forms = [
+    ...(WIN ? [{ file: COMSPEC, lead: ["/d", "/c"], quote: cmdQuoted, second: "call" }] : []),
+    ...(sh ? [{ file: sh, lead: ["-c"], quote: shQuoted, second: "env" }] : []),
+  ];
+  return forms.map(({ file, lead, quote, second }) => ({
+    how: file,
+    second,
+    run: (argv: string[]) =>
+      spawnSync(file, [...lead, argv.map(quote).join(" ")], { encoding: "utf-8", env: pathFirst(dir) }),
+  }));
+}
+
+/** What a batch file's echo writes, read as the shim's own output is: cmd ends a line with a carriage return. */
+const lines = (text: string) => text.replaceAll("\r\n", "\n");
 const BRANCH_REWRITES = [
   ["-d"],
   ["--delete"],
@@ -31,7 +85,7 @@ const ALLOWED = [
   ["log", "--oneline"],
 ];
 
-test("a seat's shell, on the PATH the desk gives it, refuses what only the desk does however it is spelled, and runs the rest with the real git", () => {
+test("a seat's shell, on the PATH the desk gives it, refuses what only the desk does however it is spelled, and runs the rest with the real git", (t) => {
   const root = tempDir("sw2-shim-");
   execFileSync("git", ["-C", root, "init", "-q", "-b", "main"]);
   execFileSync("git", [
@@ -49,16 +103,17 @@ test("a seat's shell, on the PATH the desk gives it, refuses what only the desk 
   ]);
   const state = tempDir("sw2-shim-state-");
   mkdirSync(join(state, "bin"));
-  writeFileSync(join(state, "bin", "hub"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  // A command an older kit refused, left in the directory: what it holds is never run, only swept.
+  writeFileSync(join(state, "bin", "hub"), "a command this kit no longer refuses\n");
   const kit = loadKit(PLUGIN);
   const dir = seatBin(kit, state)!;
   assert.deepEqual(
     readdirSync(dir).sort(),
-    ["git", ...Object.keys(kit.refused)].sort(),
-    "nothing the kit no longer refuses is left refusing",
+    ["git", ...Object.keys(kit.refused)].flatMap(filesFor).sort(),
+    "each command in the form this platform's shells start, and nothing the kit no longer refuses left refusing",
   );
 
-  const git = (...args: string[]) => spawnSync(join(dir, "git"), args, { encoding: "utf-8" });
+  const git = (...args: string[]) => shimGit(dir, args);
   const refused = (...args: string[]) => {
     const ran = git(...args);
     return ran.status === 1 && /^git: refused: /.test(ran.stderr);
@@ -111,24 +166,23 @@ test("a seat's shell, on the PATH the desk gives it, refuses what only the desk 
     "and what it runs is the real git's doing",
   );
 
-  const shell = (line: string) =>
-    spawnSync("/bin/sh", ["-c", line], {
-      encoding: "utf-8",
-      env: { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH}` },
-    });
-  assert.match(
-    shell(`git -C '${root}' push`).stderr,
-    /^git: refused: git push/,
-    "found by name, as a seat's shell finds it",
-  );
+  const shells = shellsAt(dir, t);
+  assert.ok(shells.length > 0, "a shell of the platform's own to run a command line in");
   assert.ok(Object.keys(kit.refused).length > 0);
-  for (const [name, why] of Object.entries(kit.refused)) {
-    const ran = shell(`env ${name} --version`);
-    assert.deepEqual(
-      [ran.status, ran.stderr],
-      [1, `${name}: refused: ${why}. Say what you need to whoever gave you the work.\n`],
-      `${name}, looked up on PATH as the shell does, past any rule that reads only a command line's first word`,
+  for (const { how, second, run } of shells) {
+    assert.match(
+      run(["git", "-C", root, "push"]).stderr,
+      /^git: refused: git push/,
+      `found by name in ${how}, as a seat's shell finds it`,
     );
+    for (const [name, why] of Object.entries(kit.refused)) {
+      const ran = run([second, name, "--version"]);
+      assert.deepEqual(
+        [ran.status, lines(ran.stderr)],
+        [1, `${name}: refused: ${why}. Say what you need to whoever gave you the work.\n`],
+        `${name}, looked up on PATH as ${how} does, past any rule that reads only a command line's first word`,
+      );
+    }
   }
 });
 
@@ -147,10 +201,7 @@ test("a seat settles what conflicts on its task's branch through its git: mergin
   writeFileSync(join(root, "a.txt"), "base\n");
   real("commit", "-qam", "base");
   const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-shim-own-state-"))!;
-  const git = (...args: string[]) =>
-    spawnSync(join(dir, "git"), ["-C", root, "-c", "user.name=t", "-c", "user.email=t@x", ...args], {
-      encoding: "utf-8",
-    });
+  const git = (...args: string[]) => shimGit(dir, ["-C", root, "-c", "user.name=t", "-c", "user.email=t@x", ...args]);
   const refused = (...args: string[]) => /^git: refused: /.test(git(...args).stderr);
 
   real("switch", "-q", "task/l1-t1-cart");
@@ -178,7 +229,7 @@ test("a seat's git works only in its own copy of the project: the Human's checko
   execFileSync("git", ["-C", scratch, "init", "-q"]);
   const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-shim-own-copy-state-"))!;
   const git = (cwd: string, ...args: string[]) =>
-    spawnSync(join(dir, "git"), args, { cwd, encoding: "utf-8", env: { ...process.env, SEATWORKS_WORKTREE: mine } });
+    shimGit(dir, args, { cwd, env: { ...process.env, SEATWORKS_WORKTREE: mine } });
   for (const [where, cwd, args] of [
     ["its own copy", mine, ["status"]],
     ["its own copy, named from a folder inside it", join(mine, "."), ["log", "--oneline"]],

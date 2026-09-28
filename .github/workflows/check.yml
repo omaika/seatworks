@@ -1,0 +1,29 @@
+name: check
+
+# "on" is quoted so a YAML 1.1 parser reads it as the key and not as true.
+"on":
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: plugin/package-lock.json
+      - run: cd plugin && npm ci
+      - run: cd plugin && npm run check

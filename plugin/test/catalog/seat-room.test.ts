@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { tempDir } from "../tempdir.ts";
+import { fakeBin } from "../fake-bin.ts";
 
 const SEAT_ROOM = fileURLToPath(new URL("../../bin/seat-room.mjs", import.meta.url));
 const PLUGIN = fileURLToPath(new URL("../..", import.meta.url));
@@ -103,9 +104,12 @@ test("the seat room starts the agent only on the seat's own settings and with th
   for (const [what, kit, harness, configDirEnv, configured, args, code, started] of ROWS) {
     const dir = tempDir("sw2-seat-room-");
     const launched = join(dir, "launched");
-    const agent = join(dir, "agent");
-    writeFileSync(agent, `#!/bin/sh\necho "$${configDirEnv} $*" > ${JSON.stringify(launched)}\n`);
-    chmodSync(agent, 0o755);
+    const agent = fakeBin(
+      dir,
+      "agent",
+      `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(launched)}, \`\${process.env[${JSON.stringify(configDirEnv)}] ?? ""} \${process.argv.slice(2).join(" ")}\n\`);`,
+    );
     const env = { PATH: process.env.PATH!, SEATWORKS_KIT: kit, SEATWORKS_HARNESS: harness, SEATWORKS_AGENT_BIN: agent };
     const ran = await open(configured ? { ...env, [configDirEnv]: configured } : env, args);
     assert.equal(ran.code, code, `${what}: ${ran.stderr}`);

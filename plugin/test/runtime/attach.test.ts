@@ -2,13 +2,14 @@
 import "../setup.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { stateRoot } from "../../server/core/paths.ts";
 import { emptyLedger } from "../../server/domain/ledger.ts";
 import { contracts } from "../../shared/rpc.ts";
 import type { Layer } from "../../shared/settings.ts";
+import { noRead } from "../no-read.ts";
 import { tempDir } from "../tempdir.ts";
 import { fakeConfig } from "./fake-paseo.ts";
 import { daemon, served, which } from "./served.ts";
@@ -179,8 +180,7 @@ test("a project attached by path, set up, opened in Paseo's own project list, de
   );
   const locked = join(walk, "locked");
   mkdirSync(locked);
-  chmodSync(locked, 0o000);
-  t.after(() => chmodSync(locked, 0o700));
+  t.after(noRead(locked));
   const refused = await call(contracts.paths, { path: locked });
   assert.match(
     which(refused, "error").error,

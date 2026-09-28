@@ -36,6 +36,15 @@ export function heldCall(h: ReturnType<typeof harness>, seat: string, call: keyo
 export const heldLook = (h: ReturnType<typeof harness>, seat: string) => heldCall(h, seat, "refresh");
 
 /**
+ * Why a test that stands a git of its own in front of the desk's cannot run on Windows: the desk runs git through
+ * execFile with no shell, and Windows starts only a real .exe from PATH, which no test can write. Everywhere else the
+ * stand-in is a script. The behaviour itself is not POSIX-only; putting a stand-in in front of the desk is.
+ */
+export const NO_STAND_IN_GIT =
+  process.platform === "win32" &&
+  "a stand-in git cannot be put in front of the desk on Windows: it runs git with execFile and no shell, which starts only a real .exe";
+
+/**
  * The next git `subcommand` the plugin runs is held until `release`, through a git first on PATH that holds that one
  * call; git's other calls, and later ones, go straight through. `release` also takes that git off PATH.
  */

@@ -18,7 +18,7 @@ import { resolveTeam, rulesFor, withHarness } from "../../server/catalog/team/te
 import { describeTeam } from "../../server/runtime/panel/team-view.ts";
 import { readConfig } from "../../server/core/config-file.ts";
 import { git } from "../../server/core/git.ts";
-import { executableIn, guidesDir, pathDirs } from "../../server/core/paths.ts";
+import { guidesDir } from "../../server/core/paths.ts";
 import type { AgentConfig } from "../../server/core/ports.ts";
 import { tempDir } from "../tempdir.ts";
 
@@ -28,9 +28,6 @@ const context = { node: "/bin/node", socket: "/desk.sock" };
 const allOn = (kit: ReturnType<typeof loadKit>) => ({
   mcp: Object.fromEntries(Object.keys(kit.mcp).map((id) => [id, { enabled: true }])),
 });
-const installed = (harness: ReturnType<typeof loadKit>["harnesses"][string]) =>
-  !harness.modelCatalog || executableIn(pathDirs(), harness.modelCatalog.command[0]!) !== undefined;
-
 test("the shipped kit resolves to a complete team, and every role's seat builds with no hidden word or placeholder in it", () => {
   const kit = loadKit(PLUGIN);
   const off = resolveTeam(kit);
@@ -96,7 +93,6 @@ test("nothing a seat or its guides lead it to read resolves into a git repositor
   const roots = [guidesDir(home)];
   placeGuides(kit, home);
   for (const { role, harness } of seatPairs(kit)) {
-    if (!installed(harness)) continue;
     const team = withHarness(resolveTeam(kit), role.role, harness);
     materialize(kit, team, role.role, home, project);
     roots.push(join(seatDir(kit, role, harness, home, project), harness.skillsDir));
@@ -116,10 +112,9 @@ test("nothing a seat or its guides lead it to read resolves into a git repositor
   );
 });
 
-test("a Codex seat runs on the model provider the owner's own Codex names, and on Codex's own when it names none", (t) => {
+test("a Codex seat runs on the model provider the owner's own Codex names, and on Codex's own when it names none", () => {
   const kit = loadKit(PLUGIN);
   const pair = seatPairs(kit).find((entry) => entry.harness.id === "codex" && entry.role.role === "lead")!;
-  if (!installed(pair.harness)) return t.skip("codex is not installed here");
   const team = withHarness(resolveTeam(kit), "lead", pair.harness);
   const home = tempDir("sw2-codex-home-");
   materialize(kit, team, "lead", home, project);

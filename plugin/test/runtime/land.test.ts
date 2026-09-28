@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../tempdir.ts";
 import { settle } from "./fake-timeline.ts";
 import { harness, laneWithPeer } from "./harness.ts";
-import { heldLook } from "./lane-gates.ts";
+import { NO_STAND_IN_GIT, heldLook } from "./lane-gates.ts";
 import { laneWith, risky } from "./landable.ts";
+import { GATE_FAILS, GATE_PASSES, escaped, gateStep, heldGate } from "../gates.ts";
 
 type Harness = ReturnType<typeof harness>;
 
@@ -25,7 +26,9 @@ function commitAll(h: Harness, cwd: string, files: Record<string, string>) {
 test("a lane lands after another moved main, gated with main's newer work in it, even while a third holds the project's copy", async () => {
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
-  await h.call(sup, "supervisor", "set_project", { gate: "test ! -f b/b.txt || test -f c/c.txt" });
+  await h.call(sup, "supervisor", "set_project", {
+    gate: `${gateStep("missing", "b/b.txt")} || ${gateStep("exists", "c/c.txt")}`,
+  });
   for (const [title, path] of [
     ["Part A", "a/**"],
     ["Part B", "b/**"],
@@ -59,7 +62,7 @@ test("a red gate or a red rehearsal holds a landing until the Supervisor lands o
     paths,
     invariant: "running it twice changes nothing",
     reviewQuestion: "What does a second run do?",
-    rehearse: "false",
+    rehearse: GATE_FAILS,
   });
   const ready = async () => {
     await h.call(lane.lead!, "lead", "report", { summary: `ready ${Date.now()}`, ready: true });
@@ -74,13 +77,17 @@ test("a red gate or a red rehearsal holds a landing until the Supervisor lands o
   await h.call(sup, "supervisor", "set_project", { riskRules: [rule(["src/db"])] });
   assert.match(
     await ready(),
-    /Gate: true passed on the lane branch in \d+s\n\nfalse, rehearsing that running it twice changes nothing, failed with exit 1 on the lane branch\./,
+    new RegExp(
+      `Gate: ${escaped(GATE_PASSES)} passed on the lane branch in \\d+s\\n\\n${escaped(GATE_FAILS)}, rehearsing that running it twice changes nothing, failed with exit 1 on the lane branch\\.`,
+    ),
   );
   const refused = await land();
   assert.equal(refused.ok, false);
   assert.match(
     refused.text,
-    /false, rehearsing that running it twice changes nothing, failed with exit 1[^]*land_lane it over the gate with overGate true and your reason/,
+    new RegExp(
+      `${escaped(GATE_FAILS)}, rehearsing that running it twice changes nothing, failed with exit 1[^]*land_lane it over the gate with overGate true and your reason`,
+    ),
   );
   const bare = await h.call(sup, "supervisor", "land_lane", { lane: "L1", overGate: true });
   assert.equal(bare.ok, false);
@@ -159,7 +166,7 @@ test("a gate that could not run because work nobody committed turned up while th
 test("in the Human's own checkout, files git does not track are theirs: a fact for whoever lands, never a stop, while changes to tracked files still stop READY and landing", async () => {
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
-  await h.call(sup, "supervisor", "set_project", { gate: "true" });
+  await h.call(sup, "supervisor", "set_project", { gate: GATE_PASSES });
   writeFileSync(join(h.root, "notes.txt"), "the Human's own notes\n");
   const opened = await h.call(sup, "supervisor", "open_lane", { title: "Cart", outcome: "a cart", ...scope });
   assert.equal(opened.ok, true, opened.text);
@@ -181,7 +188,10 @@ test("in the Human's own checkout, files git does not track are theirs: a fact f
   assert.equal(h.git(h.root, "show", "main:a.txt"), "cart\n");
 });
 
-/** Runs `during` with a git first on PATH that fails the `nth` call whose words hold `words`, as git fails when it cannot read. */
+/**
+ * Runs `during` with a git first on PATH that fails the `nth` call whose words hold `words`, as git fails when it
+ * cannot read. Only a git of the test's own can fail one call of the desk's and let the rest through.
+ */
 async function withGitFailing<T>(h: Harness, words: string, nth: number, during: () => Promise<T>): Promise<T> {
   const bin = tempDir("sw2-git-");
   const real = h.git(h.root, "--exec-path").trim();
@@ -197,22 +207,30 @@ async function withGitFailing<T>(h: Harness, words: string, nth: number, during:
   return during().finally(() => (process.env.PATH = path));
 }
 
-test("a lane whose head git cannot read when its gate is to run is not landed, and not said to have moved", async () => {
-  const { h, lane, land, onMain } = await laneWith({ "src/cart.ts": "export const cart = 1;\n" });
-  const refused = await withGitFailing(h, `rev-parse --verify ${lane.branch}^{commit}`, 2, land);
-  assert.equal(refused.ok, false, refused.text);
-  assert.match(refused.text, new RegExp(`^Lane L1 was not closed: git could not read ${lane.branch}`));
-  assert.doesNotMatch(refused.text, /moved after its gate ran/);
-  assert.equal(onMain("src/cart.ts"), false);
-  assert.equal((await land()).ok, true, "once git reads it, it lands");
-});
+test(
+  "a lane whose head git cannot read when its gate is to run is not landed, and not said to have moved",
+  { skip: NO_STAND_IN_GIT },
+  async () => {
+    const { h, lane, land, onMain } = await laneWith({ "src/cart.ts": "export const cart = 1;\n" });
+    const refused = await withGitFailing(h, `rev-parse --verify ${lane.branch}^{commit}`, 2, land);
+    assert.equal(refused.ok, false, refused.text);
+    assert.match(refused.text, new RegExp(`^Lane L1 was not closed: git could not read ${lane.branch}`));
+    assert.doesNotMatch(refused.text, /moved after its gate ran/);
+    assert.equal(onMain("src/cart.ts"), false);
+    assert.equal((await land()).ok, true, "once git reads it, it lands");
+  },
+);
 
-test("what git could not say of a lane's tests is evidence that it could not, never that nothing was deleted", async () => {
-  const { h, land } = await laneWith({ "test/cart.test.ts": "assert.ok(true);\n" });
-  const landed = await withGitFailing(h, "--diff-filter=D", 1, land);
-  assert.equal(landed.ok, true, landed.text);
-  assert.match(landed.text, /Which test files it deleted could not be read from git\./);
-});
+test(
+  "what git could not say of a lane's tests is evidence that it could not, never that nothing was deleted",
+  { skip: NO_STAND_IN_GIT },
+  async () => {
+    const { h, land } = await laneWith({ "test/cart.test.ts": "assert.ok(true);\n" });
+    const landed = await withGitFailing(h, "--diff-filter=D", 1, land);
+    assert.equal(landed.ok, true, landed.text);
+    assert.match(landed.text, /Which test files it deleted could not be read from git\./);
+  },
+);
 
 test("what git shows of a lane goes with its landing as evidence, and holds nothing back", async () => {
   const { h, sup, land, onMain } = await laneWith(risky);
@@ -228,7 +246,7 @@ test("what git shows of a lane goes with its landing as evidence, and holds noth
     "test/cart.test.ts": "assert.equal(total, 1);\nassert.ok(total);\n",
     "test/old.test.ts": "assert.ok(true);\n",
   });
-  await h.call(sup, "supervisor", "set_project", { gate: "false", gateOn: "task" });
+  await h.call(sup, "supervisor", "set_project", { gate: GATE_FAILS, gateOn: "task" });
   const cart = { title: "Cart", outcome: "a cart", ...scope, writeSet: ["src/**", "test/**"], isolate: true };
   await h.call(sup, "supervisor", "open_lane", cart);
   const lane = h.ledger().lanes.L2!;
@@ -263,7 +281,7 @@ test("what git shows of a lane goes with its landing as evidence, and holds noth
     "test/cart.test.ts: adds a skip marker.",
     "docs/notes.md is outside the lane's write set, src/**, test/**.",
     "package-lock.json is outside the lane's write set, src/**, test/**.",
-    "L2-T1 was accepted over its red gate: false: the gate failed with exit 1; the same gate on lane/l2-cart at",
+    `L2-T1 was accepted over its red gate: ${GATE_FAILS}: the gate failed with exit 1; the same gate on lane/l2-cart at`,
   ])
     assert.ok(evidence.includes(line), `${line}\n${evidence}`);
 });
@@ -349,11 +367,13 @@ test("what the record holds of a lane goes to whoever lands it, and never to the
   assert.match(landed.text, /It cut L1-T1, L1-T2, which were not finished\./);
 });
 
-test("two lanes landed at once each stay on the base: the second waits for the first, and a landing never erases another", async () => {
+test("two lanes landed at once each stay on the base: the second waits for the first, and a landing never erases another", async (t) => {
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
-  const gate = tempDir("sw2-gate-");
-  const hold = `test ! -f hold || test ! -f ${gate}/armed || { : > ${gate}/reached; until test -f ${gate}/open; do sleep 0.02; done; }`;
+  const held = heldGate(t);
+  const armed = join(tempDir("sw2-gate-armed-"), "armed");
+  // Held only where the lane carries `hold` and the test has armed it; every other landing's gate passes straight through.
+  const hold = `${gateStep("missing", "hold")} || ${gateStep("missing", armed)} || ${held.command}`;
   await h.call(sup, "supervisor", "set_project", { gate: hold });
   for (const [title, file] of [
     ["Cart", "cart.txt"],
@@ -372,16 +392,16 @@ test("two lanes landed at once each stay on the base: the second waits for the f
     h.agents.get(lane.lead!)!.status = "idle";
   }
   h.git(h.root, "switch", "-qc", "human-work");
-  writeFileSync(join(gate, "armed"), "");
+  writeFileSync(armed, "");
   const first = h.call(sup, "supervisor", "land_lane", { lane: "L1" });
-  for (let i = 0; i < 500 && !existsSync(join(gate, "reached")); i++) await settle();
-  assert.ok(existsSync(join(gate, "reached")), "the first landing is held in its gate");
+  for (let i = 0; i < 500 && !held.running(); i++) await settle();
+  assert.ok(held.running(), "the first landing is held in its gate");
   const looked = heldLook(h, sup);
   const second = h.call(sup, "supervisor", "land_lane", { lane: "L2" });
   await looked.reached;
   looked.release();
   await settle();
-  writeFileSync(join(gate, "open"), "");
+  held.release();
   const replies = await Promise.all([first, second]);
   assert.deepEqual(
     replies.map((reply) => reply.ok),
@@ -398,7 +418,7 @@ test("two lanes landed at once each stay on the base: the second waits for the f
 test("with the Human out of the loop, getting what landed out is the Supervisor's: push sends the base where git would, and a release tag, never forced", async () => {
   const { h, sup, land } = await laneWith({ "a.txt": "cart\n" });
   const remote = tempDir("sw2-remote-");
-  h.git(remote, "init", "-q", "--bare");
+  h.git(remote, "init", "-q", "--bare", "-b", "main");
   h.git(h.root, "remote", "add", "origin", remote);
   const landed = await land();
   assert.equal(landed.ok, true, landed.text);
@@ -433,7 +453,7 @@ test("with the Human out of the loop, getting what landed out is the Supervisor'
   assert.match((await push({ tag: "bad..tag" })).text, /bad\.\.tag is not a name git takes for a tag/);
 
   const fork = tempDir("sw2-fork-");
-  h.git(fork, "init", "-q", "--bare");
+  h.git(fork, "init", "-q", "--bare", "-b", "main");
   h.git(h.root, "remote", "add", "fork", fork);
   h.git(h.root, "config", "remote.pushDefault", "fork");
   assert.match((await push()).text, /^Pushed main to fork\.$/, "where the Human pushes, not where they fetch from");

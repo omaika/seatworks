@@ -4,15 +4,22 @@ import { writeConfigAtomic } from "../../core/config-file.ts";
 import { executableIn, nodeBin, pathDirs, stateRoot } from "../../core/paths.ts";
 import type { Kit } from "../kit/kit.ts";
 
+const WIN = process.platform === "win32";
+
 const quoted = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
+/** A path as the script's own shell reads it: on Windows that shell is Git Bash, which takes a backslash for an escape. */
+const scriptPath = (path: string) => quoted(WIN ? path.replaceAll("\\", "/") : path);
 /** `text` as a batch file's `echo` prints it: cmd's own characters escaped, and `%` doubled. */
 const echoed = (text: string) => text.replace(/[\^&|<>()]/g, "^$&").replaceAll("%", "%%");
 
-/** The git a seat's PATH finds past the shim: the shim's directory is skipped, since what is there is named git too. */
+/**
+ * The git a seat's PATH finds past the shim: the shim's directory is skipped, since what is there is named git too. On
+ * Windows only the .exe will do, since the shim starts it as a process, and a process cannot be a .cmd.
+ */
 function realGit(skip: string): string | undefined {
   return executableIn(
     pathDirs().filter((dir) => dir && dir !== skip),
-    "git",
+    WIN ? "git.exe" : "git",
   );
 }
 
@@ -27,7 +34,7 @@ export function seatBin(kit: Kit, root = stateRoot()): string | undefined {
   const [node, shim] = [nodeBin(), join(kit.dir, "bin", "git-shim.mjs")];
   const commands: Record<string, { sh: string; cmd: string }> = {
     git: {
-      sh: `#!/bin/sh\nexec ${quoted(node)} ${quoted(shim)} ${quoted(git)} "$@"\n`,
+      sh: `#!/bin/sh\nexec ${scriptPath(node)} ${scriptPath(shim)} ${scriptPath(git)} "$@"\n`,
       cmd: `@echo off\r\n"${node}" "${shim}" "${git}" %*\r\n`,
     },
   };
@@ -38,10 +45,12 @@ export function seatBin(kit: Kit, root = stateRoot()): string | undefined {
       cmd: `@echo off\r\n>&2 echo ${echoed(said)}\r\nexit /b 1\r\n`,
     };
   }
-  // Windows shells find the batch file; the Git Bash some agents run commands in finds the script.
+  // Windows shells find the batch file; the Git Bash some agents run commands in finds the script. A git started as a
+  // process rather than by a shell finds neither and runs the real git: to a bare name libuv appends .com and .exe
+  // alone, and CreateProcess starts only such an image, so nothing but a program of the plugin's own could stand there.
   const wanted = Object.fromEntries(
     Object.entries(commands).flatMap(([name, { sh, cmd }]) =>
-      process.platform === "win32"
+      WIN
         ? [
             [name, sh],
             [`${name}.cmd`, cmd],

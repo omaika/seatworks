@@ -64,8 +64,7 @@ export function worktreeRoot(homeDir = home()): string {
  * Where seats' team servers reach the desk: a socket beside the state it keeps, open to this user alone; on Windows, which
  * has no socket files, a named pipe named for that state.
  */
-export function deskSocket(homeDir = home()): string {
-  const root = stateRoot(homeDir);
+export function deskSocket(root = stateRoot()): string {
   if (process.platform !== "win32") return join(root, "desk.sock");
   return `\\\\.\\pipe\\seatworks-${createHash("sha256").update(root).digest("hex").slice(0, 16)}`;
 }

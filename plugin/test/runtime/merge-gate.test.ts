@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../tempdir.ts";
 import { harness, laneWithPeer } from "./harness.ts";
+import { GATE_FAILS, GATE_PASSES, escaped, gateStep } from "../gates.ts";
 
 type Harness = ReturnType<typeof harness>;
 
@@ -36,7 +37,8 @@ async function accept(h: Harness, lead: string, id: string, over: Record<string,
 test("a task that goes red with its lane brought in stays out until its Lead accepts it over the gate, with a reason", async () => {
   const { h, sup, lane } = await laneWithPeer();
   const lead = lane.lead!;
-  await h.call(sup, "supervisor", "set_project", { gate: "test ! -f x.txt || test ! -f y.txt", gateOn: "task" });
+  const notBoth = gateStep("missing", "x.txt", "y.txt");
+  await h.call(sup, "supervisor", "set_project", { gate: notBoth, gateOn: "task" });
   // Each green alone and red together, both handed back before either merges.
   await handedBack(h, lead, "Ex", "x.txt");
   const why = await handedBack(h, lead, "Why", "y.txt");
@@ -81,7 +83,9 @@ test("a task that goes red with its lane brought in stays out until its Lead acc
   assert.equal(h.git(lane.worktree!, "show", `${lane.branch}:y.txt`), "y.txt\n");
   assert.match(
     after(h, lead, "MERGED L1-T3"),
-    /Gate: ran on this task: test ! -f x\.txt \|\| test ! -f y\.txt: the gate failed with exit 1; the same gate on [^\n]*, passes — merged over it: y replaces x next task/,
+    new RegExp(
+      `Gate: ran on this task: ${escaped(notBoth)}: the gate failed with exit 1; the same gate on [^\\n]*, passes — merged over it: y replaces x next task`,
+    ),
   );
   assert.ok(h.events("gate.overridden").some((event) => event.task === "L1-T3" && event.reason === reason));
 
@@ -104,7 +108,8 @@ test("what the gate did reaches the Lead: with the hand-back, when its verdict i
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
   const gate = (settings: Record<string, unknown>) => h.call(sup, "supervisor", "set_project", settings);
-  await gate({ gate: "test ! -f BROKEN", gateOn: "task" });
+  const notBroken = gateStep("missing", "BROKEN");
+  await gate({ gate: notBroken, gateOn: "task" });
   await h.call(sup, "supervisor", "open_lane", {
     title: "Numbers",
     outcome: "a.txt gains words",
@@ -129,10 +134,10 @@ test("what the gate did reaches the Lead: with the hand-back, when its verdict i
   await inLane("Add four", "one\ntwo\nthree\nfour\n");
   assert.match(
     heard(h, lead),
-    /Gate: test ! -f BROKEN passed in/,
+    new RegExp(`Gate: ${escaped(notBroken)} passed in`),
     "the Lead is told what the gate did, not what it would do",
   );
-  assert.match(after(h, lead, "MERGED L1-T1"), /Gate: ran on this task: test ! -f BROKEN passed in/);
+  assert.match(after(h, lead, "MERGED L1-T1"), new RegExp(`Gate: ran on this task: ${escaped(notBroken)} passed in`));
   assert.doesNotMatch(heard(h, lead), /Gate: runs on the whole lane/);
   const nothing = await inLane("Check the parser");
   assert.equal(
@@ -142,7 +147,7 @@ test("what the gate did reaches the Lead: with the hand-back, when its verdict i
   );
   assert.match(after(h, lead, "MERGED L1-T2"), /changed no files/, "the letter says plainly that nothing moved");
 
-  await gate({ gate: `echo run >> ${runs}` });
+  await gate({ gate: gateStep("append", runs, "run") });
   const reused = await handedBack(h, lead, "Side", "c.txt");
   await accept(h, lead, reused.id);
   assert.equal(h.ledger().tasks[reused.id]!.status, "merged");
@@ -152,21 +157,24 @@ test("what the gate did reaches the Lead: with the hand-back, when its verdict i
     "its lane had not moved since its hand-back, so the gate ran once",
   );
 
-  await gate({ gate: "echo red; exit 1" });
-  const red = await handedBack(h, lead, "B", "b.txt");
+  const red = gateStep("complain", "red", "1");
+  await gate({ gate: red });
+  const broke = await handedBack(h, lead, "B", "b.txt");
   assert.match(
-    after(h, lead, `HANDBACK ${red.id}`),
-    /Gate: echo red; exit 1: the gate failed with exit 1; the same gate on [^\n]*, fails too\. The lane takes it red only if you accept it over the gate with a reason\./,
+    after(h, lead, `HANDBACK ${broke.id}`),
+    new RegExp(
+      `Gate: ${escaped(red)}: the gate failed with exit 1; the same gate on [^\\n]*, fails too\\. The lane takes it red only if you accept it over the gate with a reason\\.`,
+    ),
   );
-  assert.equal((await accept(h, lead, red.id)).ok, false);
+  assert.equal((await accept(h, lead, broke.id)).ok, false);
   assert.equal(
-    (await accept(h, lead, red.id, { overGate: true, reason: "the gate is broken, not the task" })).ok,
+    (await accept(h, lead, broke.id, { overGate: true, reason: "the gate is broken, not the task" })).ok,
     true,
   );
-  assert.equal(h.ledger().tasks[red.id]!.status, "merged", "accepted over the gate with a reason, it lands");
-  assert.match(h.git(lane.worktree!, "log", "-1", "--format=%s"), new RegExp(`^Merge ${red.id}`));
+  assert.equal(h.ledger().tasks[broke.id]!.status, "merged", "accepted over the gate with a reason, it lands");
+  assert.match(h.git(lane.worktree!, "log", "-1", "--format=%s"), new RegExp(`^Merge ${broke.id}`));
 
-  await gate({ gate: "true", gateOn: "lane" });
+  await gate({ gate: GATE_PASSES, gateOn: "lane" });
   const ungated = await handedBack(h, lead, "Tail", "d.txt");
   await accept(h, lead, ungated.id);
   assert.match(
@@ -185,24 +193,26 @@ test("a change a risk rule reaches is rehearsed with its gate, and a red rehears
     });
   const cut = (id: string) => h.call(lead, "lead", "cut", { task: id, reason: "rehearsed" });
 
-  await rules("false", "true");
+  await rules(GATE_FAILS, GATE_PASSES);
   const first = await handedBack(h, lead, "Migrate", "db/", "db/001.sql");
   assert.deepEqual(
     [first.handback!.gate!.ok, first.handback!.gate!.note],
     [
       false,
-      `false: the gate failed with exit 1; the same gate on ${lane.branch} at ${h.git(h.root, "rev-parse", "--short=7", lane.branch).trim()}, in a copy made as a task's is, fails too`,
+      `${GATE_FAILS}: the gate failed with exit 1; the same gate on ${lane.branch} at ${h.git(h.root, "rev-parse", "--short=7", lane.branch).trim()}, in a copy made as a task's is, fails too`,
     ],
     "a red gate stays red whatever the rehearsals after it would say, and they do not run",
   );
   await cut(first.id);
 
-  await rules("true", "false");
+  await rules(GATE_PASSES, GATE_FAILS);
   const migrate = await handedBack(h, lead, "M", "db/", "db/001.sql");
   const copy = await handedBack(h, lead, "Copy", "c.txt");
   assert.match(
     after(h, lead, `HANDBACK ${migrate.id}`),
-    /Gate: true passed in \d+s; false, rehearsing that running it twice changes nothing, failed with exit 1/,
+    new RegExp(
+      `Gate: ${escaped(GATE_PASSES)} passed in \\d+s; ${escaped(GATE_FAILS)}, rehearsing that running it twice changes nothing, failed with exit 1`,
+    ),
   );
   assert.doesNotMatch(
     after(h, lead, `HANDBACK ${copy.id}`),
@@ -212,7 +222,7 @@ test("a change a risk rule reaches is rehearsed with its gate, and a red rehears
   assert.match((await accept(h, lead, migrate.id)).text, /^L1-T\d+'s gate is red on the tree the lane would become/);
   await cut(migrate.id);
 
-  await rules("true", 'test -z "$(ls db | cut -c1-3 | sort | uniq -d)"', "no two migrations share a number");
+  await rules(GATE_PASSES, gateStep("one-per-prefix", "db", "3"), "no two migrations share a number");
   const [a, b] = [
     await handedBack(h, lead, "Add a", "db/001-a.sql"),
     await handedBack(h, lead, "Add b", "db/001-b.sql"),
@@ -231,7 +241,10 @@ test("a task's red gate comes with the same gate on its lane's tip, in a copy ma
   const { h, sup, lane } = await laneWithPeer();
   const lead = lane.lead!;
   const runs = join(tempDir("sw2-tip-runs-"), "runs");
-  await h.call(sup, "supervisor", "set_project", { gate: `echo run >> '${runs}'; test ! -f BROKEN`, gateOn: "task" });
+  await h.call(sup, "supervisor", "set_project", {
+    gate: `${gateStep("append", runs, "run")} && ${gateStep("missing", "BROKEN")}`,
+    gateOn: "task",
+  });
   const tip = () => h.git(h.root, "rev-parse", "--short=7", lane.branch).trim();
   await handedBack(h, lead, "Breaks", "BROKEN");
   assert.match(
@@ -267,7 +280,7 @@ test("no more gates run at once than the machine's gatesAtOnce, the rest waiting
   // Red when another gate runs beside it: the second mkdir finds the first one's folder.
   const busy = join(tempDir("sw2-gates-at-once-"), "busy");
   await h.call(sup, "supervisor", "set_project", {
-    gate: `mkdir '${busy}' && sleep 0.3 && rmdir '${busy}'`,
+    gate: gateStep("exclusive", busy, "0.3"),
     gateOn: "task",
   });
   const tasks = [];

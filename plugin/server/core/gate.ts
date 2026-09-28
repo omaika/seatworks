@@ -21,8 +21,8 @@ function tailOf(text: string): string {
 }
 
 /**
- * Kills the gate's whole process group, or on Windows its process tree: a leftover watcher, dev server or `&` job would
- * keep writing into the lane's copy and the log.
+ * Kills the gate's whole process group, or on Windows the root's tree: a leftover watcher, dev server or `&` job would keep
+ * writing into the lane's copy and the log. On Windows only a timeout or a stop reaches one, since a tree ends with its root.
  */
 function killGroup(pid: number | undefined): void {
   if (pid === undefined) return;
@@ -53,7 +53,10 @@ export function lastBytes(file: string, limit = 64 * 1024): string {
   }
 }
 
-/** Runs `command` in its own process group, killed whole on timeout, on `stop`, or once the command itself exits. */
+/**
+ * Runs `command` on POSIX in a process group of its own, killed whole on timeout, on `stop`, or once the command itself
+ * exits; on Windows its tree is reached only while its root lives, so a timeout or a `stop` kills it and its own end does not.
+ */
 export function runGate(
   command: string,
   cwd: string,

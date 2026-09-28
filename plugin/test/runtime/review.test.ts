@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { harness } from "./harness.ts";
-import { heldGit } from "./lane-gates.ts";
+import { NO_STAND_IN_GIT, heldGit } from "./lane-gates.ts";
 
 type Harness = ReturnType<typeof harness>;
 
@@ -20,7 +20,7 @@ async function opened(title: string, more: Record<string, unknown> = {}) {
   return { h, sup, lane, lead: lane.lead! };
 }
 
-test("a review hands back a verdict and its findings, answers what the project's risk rules ask, and the Lead is told all of it", async (t) => {
+test("a review hands back a verdict and its findings, answers what the project's risk rules ask, and the Lead is told all of it", async () => {
   const { h, sup, lane, lead } = await opened("Rounding");
   await h.call(lead, "lead", "add_tasks", {
     tasks: [{ key: "t", title: "Round", goal: "g", ...scope, hints: ["a.txt"] }],
@@ -114,9 +114,12 @@ test("a review hands back a verdict and its findings, answers what the project's
   );
   assert.match((await rules([])).text, /0 risk rules of its own/);
   assert.equal(await ofLane(), undefined, "a project's own list, even an empty one, replaces the kit's");
+});
 
-  // A lane put on hold while its review is being set up gets none: it is read again where the review is written.
-  const count = reviews(h).length;
+// A lane put on hold while its review is being set up gets none: it is read again where the review is written. The only
+// place the desk can be held between reading the lane and writing the review is the git call it makes there.
+test("a lane put on hold while its review is being set up gets none", { skip: NO_STAND_IN_GIT }, async (t) => {
+  const { h, sup, lane, lead } = await opened("Rounding");
   const gate = heldGit("rev-parse");
   t.after(gate.release);
   const asking = h.call(lead, "lead", "start_review", { focus: "Anything left?" });
@@ -129,7 +132,7 @@ test("a review hands back a verdict and its findings, answers what the project's
   const held = await asking;
   assert.equal(held.ok, false, held.text);
   assert.match(held.text, /on hold/);
-  assert.equal(reviews(h).length, count, "and nothing recorded or seated for it");
+  assert.equal(reviews(h).length, 0, "and nothing recorded or seated for it");
 });
 
 test("the lane's last task merging wakes its Lead, a review that came back being no work left, and says what the lane still needs", async () => {

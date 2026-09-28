@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -11,8 +11,8 @@ import type { z } from "zod";
 import { deskSocket } from "../../server/core/paths.ts";
 import type { TeamSocket } from "../../server/runtime/seat/team-socket.ts";
 import { contracts } from "../../shared/rpc.ts";
+import { heldGate } from "../gates.ts";
 import { harness } from "../runtime/harness.ts";
-import { tempDir } from "../tempdir.ts";
 
 const TEAM = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "mcp", "team.mjs");
 const data = (file: string, set: string) =>
@@ -89,13 +89,6 @@ async function line(t: TestContext, h: Harness, key: string, role: string) {
 }
 
 /** A gate that holds until `release` is called, so a call it runs is stopped or dropped while the desk is still at it. */
-function heldGate(t: TestContext) {
-  const go = join(tempDir("sw2-gate-"), "go");
-  const release = () => writeFileSync(go, "");
-  t.after(release);
-  return { command: `until [ -f '${go}' ]; do sleep 0.02; done`, release };
-}
-
 const task = {
   key: "t",
   title: "Clean build",

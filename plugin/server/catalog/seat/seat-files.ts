@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { configFault, formatConfig, readConfig, readConfigStrict, writeConfigAtomic } from "../../core/config-file.ts";
 import { errorText } from "../../core/errors.ts";
-import { LeftAlone, ensureLink, isLink, present, writeIfChanged } from "../../core/fs.ts";
+import { LeftAlone, ensureLink, forgetLink, isLink, present, removeLink, writeIfChanged } from "../../core/fs.ts";
 import { type Json, getPath, isRecord, layered, sameJson, setPath } from "../../core/json.ts";
 import { daemonLog } from "../../core/logger.ts";
-import { expandHome } from "../../core/paths.ts";
+import { commandIn, executableIn, expandHome, pathDirs } from "../../core/paths.ts";
 import { projectBlock, skillProblems, skillSources } from "../kit/content.ts";
 import type { HarnessSpec, Kit, McpServers, RoleSpec } from "../kit/kit.ts";
 import { harnessFileSources, roleSettingsFile } from "../kit/harness-files.ts";
@@ -29,9 +29,12 @@ export function recorder(): Recorder {
 }
 
 function writeConfigIfChanged(path: string, value: unknown): boolean {
-  if (present(path) && !isLink(path) && sameJson(readConfig(path, null), value)) return false;
+  const link = isLink(path);
+  // The plugin owns this file, so no name the desk kept for a link in its place explains anything any more.
+  forgetLink(path);
+  if (!link && present(path) && sameJson(readConfig(path, null), value)) return false;
   mkdirSync(dirname(path), { recursive: true });
-  if (isLink(path)) unlinkSync(path);
+  if (link) unlinkSync(path);
   writeConfigAtomic(path, formatConfig(path, value));
   return true;
 }
@@ -94,13 +97,24 @@ export function writeRoleSettings(
 
 const catalogs = new Map<string, string>();
 
-function catalogText(command: string[]): string {
+/** Where a command names a path of its own, that path says which directory to run it from; otherwise PATH does. */
+function commandFor(name: string): { file: string; shell: boolean } | undefined {
+  const own = isAbsolute(name) || /[\\/]/.test(name);
+  const [dirs, called] = own ? [[dirname(name)], basename(name)] : [pathDirs(), name];
+  return executableIn(dirs, called) ? commandIn(dirs, called) : undefined;
+}
+
+/** What the agent's own command prints, or nothing at all when it is not installed here. */
+function catalogText(command: string[]): string | undefined {
   const key = command.join("\0");
   const cached = catalogs.get(key);
   if (cached !== undefined) return cached;
-  const [bin, ...args] = command;
-  const text = execFileSync(bin!, args, {
+  const [name, ...args] = command;
+  const found = commandFor(name!);
+  if (!found) return undefined;
+  const text = execFileSync(found.file, args, {
     encoding: "utf-8",
+    shell: found.shell,
     timeout: 20_000,
     maxBuffer: 64 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
@@ -114,9 +128,21 @@ export function writeModelCatalog(harness: HarnessSpec, dir: string, record: Rec
   const spec = harness.modelCatalog;
   if (!spec) return {};
   const from = `\`${spec.command.join(" ")}\``;
+  const path = join(dir, spec.file);
   let catalog: unknown;
   try {
-    catalog = JSON.parse(catalogText(spec.command));
+    const text = catalogText(spec.command);
+    // Not installed refuses no seat, since the agent may still be one Paseo can start; but the limits this list carries are
+    // then off, and a seat running unlimited where the kit says otherwise is said out loud rather than passed over.
+    if (text === undefined) {
+      daemonLog.info(
+        `${spec.command[0]} is not installed here, so no ${harness.label} seat is held to the models ${from} lists`,
+      );
+      removeIfPresent(path, spec.file, record);
+      record.note(true, `no ${spec.file}: ${spec.command[0]} is not installed here`);
+      return {};
+    }
+    catalog = JSON.parse(text);
   } catch (error) {
     throw new Error(`${harness.label}'s model list could not be read from ${from}: ${errorText(error)}`, {
       cause: error,
@@ -126,7 +152,6 @@ export function writeModelCatalog(harness: HarnessSpec, dir: string, record: Rec
   if (!Array.isArray(list) || list.length === 0)
     throw new Error(`${from} lists no ${spec.list}, so ${harness.label}'s models could not be limited`);
   for (const entry of list) if (isRecord(entry)) for (const key of spec.clear) entry[key] = null;
-  const path = join(dir, spec.file);
   record.note(writeIfChanged(path, `${JSON.stringify(catalog)}\n`), spec.file);
   const setting: Json = {};
   setPath(setting, spec.setting.split("."), path);
@@ -173,7 +198,7 @@ export function linkShared(harness: HarnessSpec, dir: string, homeDir: string, r
         daemonLog.error(error.message);
       }
     } else if (link.optional && isLink(path)) {
-      unlinkSync(path);
+      removeLink(path);
       record.removed(link.link);
     }
   }
@@ -255,7 +280,7 @@ export function linkSkills(
   for (const name of readdirSync(skillsDir)) {
     const path = join(skillsDir, name);
     if (!wanted.has(name) && isLink(path)) {
-      unlinkSync(path);
+      removeLink(path);
       record.removed(`skill ${name}`);
     }
   }

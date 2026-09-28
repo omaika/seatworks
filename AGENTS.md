@@ -126,7 +126,9 @@ the test did not ask for fails it.
 
 ## Working here
 
-- **There is no CI.** `npm run check` before every commit is the whole net.
+- **CI runs `cd plugin && npm run check` on windows-latest and ubuntu-latest** for every push to
+  main and every pull request (`.github/workflows/check.yml`), and no seat sees its result:
+  `npm run check` before every commit is still the whole net.
 - **Never start the daemon or launch seats to test.** Seats are real agents with broad permissions,
   and they cost money. The suite, your reading and `~/.paseo/daemon.log` are the evidence.
 - **Never print or cat a file that can hold a key:** `settings.json` under

@@ -14,3 +14,11 @@ export function tempDir(prefix = "sw2-test-"): string {
   made.push(dir);
   return dir;
 }
+
+/** A home of its own for this process and all it spawns: POSIX reads HOME, Windows reads USERPROFILE. */
+export function ownHome(prefix = "sw2-home-"): string {
+  const dir = tempDir(prefix);
+  process.env.HOME = dir;
+  process.env.USERPROFILE = dir;
+  return dir;
+}

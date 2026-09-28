@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { test } from "node:test";
-import { tempDir } from "../tempdir.ts";
+import { heldGate } from "../gates.ts";
 import { settle } from "./fake-timeline.ts";
 import { harness, heldCreate, laneWithPeer } from "./harness.ts";
 import { heldCall, heldLook } from "./lane-gates.ts";
@@ -211,20 +209,17 @@ test("a lane closed twice at once is closed once, and the second call is told it
   assert.equal(h.events("lane.closed").length, 1);
 });
 
-test("a READY whose gate is still running when its lane closes is not recorded on the closed lane", async () => {
+test("a READY whose gate is still running when its lane closes is not recorded on the closed lane", async (t) => {
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
-  const gate = tempDir("sw2-gate-");
-  await h.call(sup, "supervisor", "set_project", {
-    gate: `: > ${gate}/reached; until test -f ${gate}/open; do sleep 0.02; done; true`,
-    gateOn: "lane",
-  });
+  const gate = heldGate(t);
+  await h.call(sup, "supervisor", "set_project", { gate: gate.command, gateOn: "lane" });
   await h.call(sup, "supervisor", "open_lane", { title: "Slow", ...scope });
   const reporting = h.call(h.ledger().lanes.L1!.lead!, "lead", "report", { summary: "ready to land", ready: true });
-  for (let i = 0; i < 500 && !existsSync(join(gate, "reached")); i++) await settle();
-  assert.ok(existsSync(join(gate, "reached")));
+  for (let i = 0; i < 500 && !gate.running(); i++) await settle();
+  assert.ok(gate.running());
   assert.equal((await h.call(sup, "supervisor", "drop_lane", { lane: "L1", reason: "no longer wanted" })).ok, true);
-  writeFileSync(join(gate, "open"), "");
+  gate.release();
   const reported = await reporting;
   assert.equal(reported.ok, false, reported.text);
   assert.equal(h.ledger().lanes.L1!.ready, undefined);

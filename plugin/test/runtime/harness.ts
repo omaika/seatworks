@@ -16,7 +16,7 @@ import { type Project, projectOf } from "../../server/desk/project/project.ts";
 import { registerRpc } from "../../server/runtime/panel/rpc.ts";
 import { Runtime } from "../../server/runtime/runtime.ts";
 import type { z } from "zod";
-import { tempDir } from "../tempdir.ts";
+import { ownHome, tempDir } from "../tempdir.ts";
 import { type Pending, fakePaseo } from "./fake-paseo.ts";
 import { writeProjectBlock } from "../../server/catalog/seat/project-block.ts";
 import { TIMELINE } from "../../shared/timeline-items.ts";
@@ -78,7 +78,7 @@ type EventOf<K, E = DeskEvent> = E extends { kind: infer T } ? (K extends T ? E 
 /** `sensor` stands in for the HTTP one the host gives the desk, so no test asks a real model. */
 export function harness(options: { sensor?: (spec: SensorSpec, key: string) => Judge } = {}) {
   // One harness is one machine: a test that builds two gets two, since a daemon never shares its state.
-  process.env.HOME = tempDir("sw2-home-");
+  ownHome();
   const { root, git } = repo();
   const state = stateRoot();
   mkdirSync(state, { recursive: true });

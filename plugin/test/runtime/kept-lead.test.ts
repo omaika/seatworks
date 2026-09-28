@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { harness, ideCalls, laneWithPeer } from "./harness.ts";
+import { GATE_PASSES } from "../gates.ts";
 
 type Harness = ReturnType<typeof harness>;
 
@@ -77,7 +78,7 @@ test("a kept Lead keeps its lane's copy until the Supervisor releases it or the 
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
   const release = (lane: string) => h.call(sup, "supervisor", "release", { lane });
-  await h.call(sup, "supervisor", "set_project", { gate: "true" });
+  await h.call(sup, "supervisor", "set_project", { gate: GATE_PASSES });
   const part = await isolated(h, sup, "Part B", "b");
   const lead = part.lead!;
   assert.equal(part.slot, "S0");

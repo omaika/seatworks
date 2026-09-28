@@ -6,6 +6,7 @@ import { configFile } from "../../server/desk/project/project.ts";
 import { contracts } from "../../shared/rpc.ts";
 import { heldLook } from "./lane-gates.ts";
 import { asked, decide, laneWith, risky } from "./landable.ts";
+import { GATE_FAILS, GATE_PASSES } from "../gates.ts";
 
 type Landable = Awaited<ReturnType<typeof laneWith>>;
 
@@ -109,7 +110,7 @@ test("a landing sent back stays open without its READY, and held again is approv
     "sent, not held for a letter that asks",
   );
 
-  await h.call(sup, "supervisor", "set_project", { gate: "false" });
+  await h.call(sup, "supervisor", "set_project", { gate: GATE_FAILS });
   const reason = "the Supervisor judged the red gate safe";
   const held = await h.call(sup, "supervisor", "land_lane", { lane: "L1", overGate: true, reason });
   assert.match(held.text, /waits for the Human's approval[^]*Gate: failed on the lane\./);
@@ -177,7 +178,7 @@ test("an approval is for the lane as it was held, and for what the Human asked a
     (await land()).text,
     /The Human's standing orders cannot be read \(.*project\.json does not hold what the plugin keeps there: askFirst: .*\), so no landing goes ahead without them\./,
   );
-  assert.equal((await h.call(sup, "supervisor", "set_project", { gate: "true" })).ok, false);
+  assert.equal((await h.call(sup, "supervisor", "set_project", { gate: GATE_PASSES })).ok, false);
   assert.equal(readFileSync(orders, "utf-8"), misread, "a field that does not read is never written over");
   // A key the desk does not keep is the Human's order misspelt: read past, the paths they meant would wait for nobody.
   const misspelt = JSON.stringify({ ...(JSON.parse(kept) as object), askfirst: ["src/auth"] });
@@ -187,7 +188,7 @@ test("an approval is for the lane as it was held, and for what the Human asked a
     /The Human's standing orders cannot be read \(.*project\.json does not hold what the plugin keeps there: .*askfirst.*\), so no landing goes ahead without them\./,
   );
   assert.equal(onMain("src/auth/login.ts"), false);
-  assert.equal((await h.call(sup, "supervisor", "set_project", { gate: "true" })).ok, false);
+  assert.equal((await h.call(sup, "supervisor", "set_project", { gate: GATE_PASSES })).ok, false);
   assert.equal(readFileSync(orders, "utf-8"), misspelt, "nor is a key the desk does not keep");
   writeFileSync(orders, kept);
   const landed = await land();

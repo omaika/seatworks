@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { resolveTeam } from "../../server/catalog/team/team.ts";
+import { makeLink } from "../../server/core/fs.ts";
 import { contentRoot, stateRoot, worktreeRoot } from "../../server/core/paths.ts";
 import { writeJson } from "../../server/core/store.ts";
 import { emptyLedger } from "../../server/domain/ledger.ts";
 import { removeGarbage, scanGarbage } from "../../server/upkeep/clean.ts";
 import { makeKit } from "../kit.ts";
+import { noRead } from "../no-read.ts";
 import { tempDir } from "../tempdir.ts";
 
 function world() {
@@ -48,7 +50,7 @@ const found = async (ctx: Parameters<typeof scanGarbage>[0]) =>
     .map((item) => [item.kind, item.path, item.why, item.held, item.careful] as const)
     .sort((a, b) => a[1].localeCompare(b[1]));
 
-test("clean up lists only what nothing will use again: seats nothing will sit in, copies no slot holds, detached records and unlinked copies of the guides", async () => {
+test("clean up lists only what nothing will use again: seats nothing will sit in, copies no slot holds, detached records and unlinked copies of the guides", async (t) => {
   const { home, shop, seat, copy, live, ctx, moveLead } = world();
   assert.deepEqual(await found(ctx), [], "a machine with nothing left over lists nothing");
   const current = seat("sw2-lead-claude-shop-abc123");
@@ -75,7 +77,7 @@ test("clean up lists only what nothing will use again: seats nothing will sit in
   const stale = join(contentRoot(home), "guides-bbbbbbbbbbbb");
   mkdirSync(used, { recursive: true });
   mkdirSync(stale, { recursive: true });
-  symlinkSync(used, join(stateRoot(home), "guides"));
+  makeLink(join(stateRoot(home), "guides"), used);
   assert.deepEqual(
     await found(ctx),
     [
@@ -109,10 +111,9 @@ test("clean up lists only what nothing will use again: seats nothing will sit in
     "a seat whose role moved to another agent",
   );
 
-  if (process.platform === "win32") return;
-  const ledger = join(shop.state, "ledger.json");
-  rmSync(ledger);
-  symlinkSync(ledger, ledger);
+  // Read taken off the records it sits in is what stops the ledger being looked at on either platform; a symlink to
+  // itself, which staged this before, is not an ordinary Windows account's to make.
+  t.after(noRead(shop.state));
   assert.deepEqual(
     (await found(ctx)).filter(([kind]) => kind === "copy"),
     [],

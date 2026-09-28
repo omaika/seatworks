@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { harness, laneWithPeer } from "./harness.ts";
 import { laneWith } from "./landable.ts";
+import { GATE_PASSES } from "../gates.ts";
 
 const lane = (title: string, extra: Record<string, unknown> = {}) => ({
   title,
@@ -22,7 +23,7 @@ test("a lane that waits is recorded, amended, opened off a base holding the work
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
   const open = (title: string, extra: Record<string, unknown> = {}) =>
     h.call(sup, "supervisor", "open_lane", lane(title, extra));
-  await h.call(sup, "supervisor", "set_project", { gate: "true" });
+  await h.call(sup, "supervisor", "set_project", { gate: GATE_PASSES });
   await open("Cart", { outcome: "a cart", writeSet: ["a.txt"] });
   const cart = h.ledger().lanes.L1!;
   assert.match((await open("T", { after: ["L9"] })).text, /There is no lane L9 to wait for/);
@@ -168,7 +169,7 @@ test("a lane waiting to carry on a branch carries on the branch the lane before 
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
   const open = (title: string, extra: Record<string, unknown> = {}) =>
     h.call(sup, "supervisor", "open_lane", lane(title, extra));
-  await h.call(sup, "supervisor", "set_project", { gate: "true" });
+  await h.call(sup, "supervisor", "set_project", { gate: GATE_PASSES });
   await open("First", { onBranch: true });
   assert.match(
     (await open("Then", { after: ["L1"] })).text,

@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { stateRoot } from "../../server/core/paths.ts";
 import { saveLedger } from "../../server/desk/store/ledger.ts";
 import { reported } from "../console.ts";
 import { tempDir } from "../tempdir.ts";
-import { settle } from "./fake-timeline.ts";
 import { harness, laneWithPeer, nobodySeated } from "./harness.ts";
+import { gateStep, heldGate } from "../gates.ts";
 
 /** Whether `check` comes true within `ms`, looked at every 20 ms. */
 async function within(ms: number, check: () => boolean): Promise<boolean> {
@@ -121,7 +121,7 @@ function alive(pid: number): boolean {
 test("a gate running when the plugin stops is stopped with it, not left writing into the copy", async (t) => {
   const { h, sup, lane, peer } = await laneWithPeer();
   const pidFile = join(tempDir("sw2-gate-"), "pid");
-  await h.call(sup, "supervisor", "set_project", { gate: `echo $$ > ${pidFile}; exec sleep 30`, gateOn: "task" });
+  await h.call(sup, "supervisor", "set_project", { gate: gateStep("pid", pidFile), gateOn: "task" });
   h.commit(lane.worktree!, "a.txt", "A\n");
   const handing = h.call(peer, "peer", "done", { outcome: "complete", summary: "done" });
   assert.ok(await within(5000, () => existsSync(pidFile) && readFileSync(pidFile, "utf-8").trim() !== ""));
@@ -175,12 +175,11 @@ test("what waited on a turn when the plugin stopped goes on at its first round",
 });
 
 test("an answer promised as mail that a stop lost is owned up to once the plugin starts again, and one that came is not", async (t) => {
-  const go = join(tempDir("sw2-promise-"), "go");
-  t.after(() => writeFileSync(go, ""));
+  const gate = heldGate(t);
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
   // The gate waits for the test, which decides whether the answer comes before or after the stop.
-  await h.call(sup, "supervisor", "set_project", { gate: `until [ -f ${go} ]; do sleep 0.05; done` });
+  await h.call(sup, "supervisor", "set_project", { gate: gate.command });
   await h.call(sup, "supervisor", "open_lane", {
     title: "Slow",
     outcome: "x",
@@ -213,12 +212,12 @@ test("an answer promised as mail that a stop lost is owned up to once the plugin
   await h.tick();
   await h.idle(lead);
   assert.equal(told(), 1, "the stop lost the answer, so the desk owns up to it");
-  writeFileSync(go, "");
+  gate.release();
   assert.ok(await answered(1), "the run the stop left behind finishes");
 
-  rmSync(go);
+  gate.arm();
   assert.match((await report("r2")).text, /answer arrives as mail/);
-  writeFileSync(go, "");
+  gate.release();
   assert.ok(await answered(2), "the answer comes as mail");
   h.restart();
   await h.tick();
@@ -227,9 +226,9 @@ test("an answer promised as mail that a stop lost is owned up to once the plugin
 
   const said = reported(t);
   writeFileSync(join(stateRoot(), "intents.json"), "{not json");
-  rmSync(go);
+  gate.arm();
   assert.match((await report("r3")).text, /answer arrives as mail/);
-  writeFileSync(go, "");
+  gate.release();
   assert.ok(await answered(3), "the answer still comes");
   assert.equal(
     readFileSync(join(stateRoot(), "intents.json"), "utf-8"),
@@ -246,11 +245,19 @@ async function stoppedOpening(where: Record<string, unknown>) {
   const paseo = h.paseo as unknown as {
     workspaces: { ref: (id: string) => { agents: { create: (options: unknown) => Promise<unknown> } } };
   };
+  const seated = () => [...h.agents.values()].find((agent) => agent.title.startsWith("L1 · Lead"));
+  // The gate the stop below waits on: Paseo has registered the Lead, and the call that seats it never returns.
+  let seatedNow!: () => void;
+  const isSeated = new Promise<void>((resolve) => (seatedNow = resolve));
   const ref = paseo.workspaces.ref;
   paseo.workspaces.ref = (id) => {
     const workspace = ref(id);
     const create = workspace.agents.create;
-    workspace.agents.create = async (options) => (await create(options), new Promise(() => {}));
+    workspace.agents.create = async (options) => {
+      await create(options);
+      if (seated()) seatedNow();
+      return new Promise(() => {});
+    };
     return workspace;
   };
   const head = h.git(h.root, "rev-parse", "HEAD").trim();
@@ -261,12 +268,13 @@ async function stoppedOpening(where: Record<string, unknown>) {
     outOfScope: ["the rest"],
     ...where,
   });
-  const seated = () => [...h.agents.values()].find((agent) => agent.title.startsWith("L1 · Lead"));
-  for (let i = 0; i < 200 && !seated(); i++) await settle();
+  await isSeated;
   paseo.workspaces.ref = ref;
   h.restart();
   await h.tick(Date.now());
-  return { h, lead: seated()!.id, head };
+  const lead = seated();
+  assert.ok(lead, "the lane's Lead is the seat Paseo registered before the stop");
+  return { h, lead: lead.id, head };
 }
 
 test("a Lead seated before a stop is taken on where it works, the commit its lane started from kept, and its tasks start", async () => {

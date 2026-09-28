@@ -6,6 +6,7 @@ import { loadConfig } from "../../server/desk/project/project.ts";
 import type { DeskServices } from "../../server/desk/services.ts";
 import { contracts } from "../../shared/rpc.ts";
 import { harness, ideCalls } from "./harness.ts";
+import { escaped, gateStep } from "../gates.ts";
 
 const scope = { acceptance: ["a"], outOfScope: ["anything else in the repository"] };
 const work = (title: string, hint: string) => ({
@@ -17,7 +18,7 @@ test("a lane works in the project's own copy from open to landing, and hands it 
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
   const root = h.project.root;
   const branch = () => h.git(root, "branch", "--show-current").trim();
-  await h.call(sup, "supervisor", "set_project", { gate: "test ! -f BROKEN", gateOn: "lane" });
+  await h.call(sup, "supervisor", "set_project", { gate: gateStep("missing", "BROKEN"), gateOn: "lane" });
   const numbers = { title: "Numbers", outcome: "a.txt gains words", acceptance: ["four"] };
   const opened = await h.call(sup, "supervisor", "open_lane", numbers);
   assert.equal(opened.ok, true, `limits the outcome does not hold are the Supervisor's to give or not: ${opened.text}`);
@@ -149,6 +150,7 @@ test("a lane whose base moved lands only once nobody writes in its copy: the des
   // A project's own hooks, as husky or commitlint install them, judge its people's commits, not the desk's merges.
   const hooks = join(h.git(h.root, "rev-parse", "--absolute-git-dir").trim(), "hooks");
   for (const hook of ["pre-merge-commit", "commit-msg"])
+    // Git runs a hook through the shell it ships with, on Windows too, and reads no executable bit there.
     writeFileSync(join(hooks, hook), "#!/bin/sh\necho refused by the project >&2\nexit 1\n", { mode: 0o755 });
   await h.idle(sup);
   h.agents.get(lane.lead!)!.status = "idle";
@@ -209,7 +211,8 @@ test("a landing ordered while a turn was in the way is not carried out on a lane
 test("a landing ordered while a turn was in the way that its gate then refuses is told NOT LANDED, with why", async () => {
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
-  await h.call(sup, "supervisor", "set_project", { gate: "test -f NEVER", gateOn: "lane" });
+  const needsNever = gateStep("exists", "NEVER");
+  await h.call(sup, "supervisor", "set_project", { gate: needsNever, gateOn: "lane" });
   await h.call(sup, "supervisor", "open_lane", { title: "Numbers", outcome: "a.txt gains words", ...scope });
   const lane = h.ledger().lanes.L1!;
   h.commit(h.root, "a.txt", "one\ntwo\nthree\nfour\n");
@@ -225,7 +228,9 @@ test("a landing ordered while a turn was in the way that its gate then refuses i
   const sent = h.agents.get(sup)!.sent.join("\n");
   assert.match(
     sent,
-    /NOT LANDED L1 \(Numbers\): Lane L1 was not closed: test -f NEVER failed with exit 1 on the lane branch\./,
+    new RegExp(
+      `NOT LANDED L1 \\(Numbers\\): Lane L1 was not closed: ${escaped(needsNever)} failed with exit 1 on the lane branch\\.`,
+    ),
   );
   assert.doesNotMatch(sent, /^LANDED L1/m);
 });
@@ -292,7 +297,7 @@ test("a lane carrying on the Human's branch is refused where there is none, star
     h.call(sup, "supervisor", "open_lane", { title, outcome: "the login fix is finished", ...scope, ...extra });
   const branch = () => h.git(h.root, "branch", "--show-current").trim();
   const bee = () => readFileSync(join(h.root, "b.txt"), "utf-8");
-  await h.call(sup, "supervisor", "set_project", { gate: "test ! -f BROKEN" });
+  await h.call(sup, "supervisor", "set_project", { gate: gateStep("missing", "BROKEN") });
   h.git(h.root, "switch", "-qc", "fix/login");
   h.commit(h.root, "a.txt", "one\ntwo\nthree\nhalf a fix\n");
   writeFileSync(join(h.root, "b.txt"), "bee, still being edited\n");

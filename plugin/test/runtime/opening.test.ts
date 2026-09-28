@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { test } from "node:test";
+import { GATE_PASSES, escaped } from "../gates.ts";
 import { tempDir } from "../tempdir.ts";
 import { harness } from "./harness.ts";
+import { NO_STAND_IN_GIT } from "./lane-gates.ts";
 
 const lane = (title: string, extra: Record<string, unknown> = {}) => ({
   title,
@@ -23,10 +25,13 @@ test("where a lane works is carried by open_lane or laneHome; with neither, a co
     h.call(sup, "supervisor", "open_lane", lane(title, extra));
   const choice =
     /Nothing on record chooses where the next lane works, so it opens in a copy of its own unless the Human chooses another: /;
-  await h.call(sup, "supervisor", "set_project", { base: "main", gate: "true" });
+  await h.call(sup, "supervisor", "set_project", { base: "main", gate: GATE_PASSES });
   const endless = await h.call(sup, "supervisor", "set_project", { gate: "npm test", gateTimeoutMinutes: 0 });
   assert.match(endless.text, /^Nothing was set: gateTimeoutMinutes/);
-  assert.match((await h.call(sup, "supervisor", "set_project", {})).text, /^Base main; gate true, /);
+  assert.match(
+    (await h.call(sup, "supervisor", "set_project", {})).text,
+    new RegExp(`^Base main; gate ${escaped(GATE_PASSES)}, `),
+  );
   const fresh = await status();
   assert.match(
     fresh,
@@ -140,7 +145,7 @@ test("where a lane works is carried by open_lane or laneHome; with neither, a co
 test("with the Human out of the loop, where a lane works is the Supervisor's to choose, status says so, and a lane nothing chose for opens in a copy of its own", async () => {
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
-  await h.call(sup, "supervisor", "set_project", { base: "main", gate: "true" });
+  await h.call(sup, "supervisor", "set_project", { base: "main", gate: GATE_PASSES });
   h.git(h.root, "switch", "-qc", "fix/login");
   const status = (await h.call(sup, "supervisor", "status", {})).text;
   assert.match(
@@ -438,33 +443,42 @@ test("a Lead's directive says what its lane writes, depends on and keeps to one 
     /^One writer at a time: b\.txt\. A task that writes any of these works in the lane's working copy, not in parallel\.$/m,
   );
   assert.doesNotMatch(directive("L6"), /package-lock/);
-
-  // Where git cannot list what a copy holds, every one-writer rule counts, rather than none.
-  const bin = tempDir("sw2-git-");
-  const real = h.git(h.root, "--exec-path").trim();
-  writeFileSync(
-    join(bin, "git"),
-    `#!/bin/sh\ncase " $* " in *" ls-files "*) echo "fatal: index file corrupt" >&2; exit 128;; esac\nexec "${real}/git" "$@"\n`,
-  );
-  chmodSync(join(bin, "git"), 0o755);
-  await h.call(sup, "supervisor", "set_project", { serialOnly: ["b.txt", "vendor/**"] });
-  const path = process.env.PATH;
-  process.env.PATH = `${bin}${delimiter}${path}`;
-  try {
-    await open("Blind", { writeSet: ["g.txt"] });
-  } finally {
-    process.env.PATH = path;
-  }
-  assert.match(
-    directive("L7"),
-    /^One writer at a time: b\.txt, vendor\/\*\*\. A task that writes any of these works in the lane's working copy, not in parallel\.$/m,
-  );
 });
+
+// Where git cannot list what a copy holds, every one-writer rule counts, rather than none. A lane's copy is made inside
+// the call, so only a git the test stands in front of the desk's can fail that one listing.
+test(
+  "where git cannot list what a lane's copy holds, every one-writer rule counts rather than none",
+  { skip: NO_STAND_IN_GIT },
+  async () => {
+    const h = harness();
+    const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
+    const bin = tempDir("sw2-git-");
+    const real = h.git(h.root, "--exec-path").trim();
+    writeFileSync(
+      join(bin, "git"),
+      `#!/bin/sh\ncase " $* " in *" ls-files "*) echo "fatal: index file corrupt" >&2; exit 128;; esac\nexec "${real}/git" "$@"\n`,
+      { mode: 0o755 },
+    );
+    await h.call(sup, "supervisor", "set_project", { serialOnly: ["b.txt", "vendor/**"] });
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${path}`;
+    try {
+      assert.equal((await h.call(sup, "supervisor", "open_lane", lane("Blind", { writeSet: ["g.txt"] }))).ok, true);
+    } finally {
+      process.env.PATH = path;
+    }
+    assert.match(
+      h.agents.get(h.ledger().lanes.L1!.lead!)!.prompt ?? "",
+      /^One writer at a time: b\.txt, vendor\/\*\*\. A task that writes any of these works in the lane's working copy, not in parallel\.$/m,
+    );
+  },
+);
 
 test("the Supervisor's status names the Human's uncommitted files as they are: a space in a name, and a rename by where it went", async () => {
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
-  await h.call(sup, "supervisor", "set_project", { base: "main", gate: "true" });
+  await h.call(sup, "supervisor", "set_project", { base: "main", gate: GATE_PASSES });
   writeFileSync(join(h.root, "my notes.txt"), "half done\n");
   h.git(h.root, "mv", "a.txt", "moved -> here.txt");
   const status = (await h.call(sup, "supervisor", "status", {})).text;

@@ -31,9 +31,16 @@ type Line = {
   cwd: string;
   shown?: string;
   calls: Map<string, Call>;
+  window?: ReturnType<typeof setTimeout>;
 };
 
 const UNHEARD = "The desk does not know which agent this is: its team server has not said. Say so, and end your turn.";
+
+// A seat's server says hello the instant it connects and gives the desk 300 ms to answer, so a line silent this long is nobody's.
+const HELLO_MS = 5_000;
+// Only this many lines may wait to say who they are; past it the oldest go. In a wave of reconnects wider than this, after a
+// plugin reload, the line dropped may be a real seat's: its server opens the line again, and the desk knows it then.
+const UNKNOWN_LINES = 32;
 
 /** Where seats' team servers reach the desk: one line each, a call answered on the line it came by. */
 export class TeamSocket {
@@ -63,7 +70,10 @@ export class TeamSocket {
   close(): void {
     this.server?.close();
     this.server = undefined;
-    for (const line of this.lines) line.socket.destroy();
+    for (const line of this.lines) {
+      clearTimeout(line.window);
+      line.socket.destroy();
+    }
     if (!this.pipe) rmSync(this.path, { force: true });
   }
 
@@ -80,12 +90,25 @@ export class TeamSocket {
   private serve(socket: Socket): void {
     const line: Line = { socket, role: "", cwd: "", calls: new Map() };
     this.lines.add(line);
+    line.window = setTimeout(() => this.drop(line), HELLO_MS);
+    this.crowd();
     // readline passes on the socket's errors: a line that fails is closed, and `dropped` sees to its calls.
     createInterface({ input: socket })
       .on("line", (text) => this.heard(line, text))
       .on("error", () => {});
     socket.on("error", () => {});
     socket.on("close", () => this.dropped(line));
+  }
+
+  /** Whoever reaches the desk costs it one line until it says who it is: the oldest of those past the cap go now. */
+  private crowd(): void {
+    const waiting = [...this.lines].filter((line) => !line.agent && !line.socket.destroyed);
+    for (const line of waiting.slice(0, Math.max(0, waiting.length - UNKNOWN_LINES))) this.drop(line);
+  }
+
+  private drop(line: Line): void {
+    line.socket.destroy();
+    this.dropped(line);
   }
 
   private heard(line: Line, text: string): void {
@@ -104,6 +127,8 @@ export class TeamSocket {
 
   private hello(line: Line, said: { key: string; role: string; cwd: string }): void {
     if (line.agent) return;
+    // Cleared before the refusal too: a refused line dropped here is reopened by the seat's server, refused and dropped for ever.
+    clearTimeout(line.window);
     const whose = this.desk.whose(said.key);
     if ("refused" in whose) {
       line.refused = whose.refused;
@@ -154,6 +179,7 @@ export class TeamSocket {
   }
 
   private dropped(line: Line): void {
+    clearTimeout(line.window);
     this.lines.delete(line);
     for (const call of line.calls.values()) this.lose(call);
     line.calls.clear();

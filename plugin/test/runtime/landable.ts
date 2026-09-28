@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { contracts } from "../../shared/rpc.ts";
 import { harness } from "./harness.ts";
+import { GATE_PASSES } from "../gates.ts";
 
 /**
  * A lane with a gate that passes, one commit of `files` on it and a READY from its Lead between turns, whose Human asked to
@@ -16,7 +17,7 @@ export async function laneWith(
   const h = harness();
   h.projectSettings({ hitl: { on: hitl } });
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
-  await h.call(sup, "supervisor", "set_project", { base: "main", gate: "true", askFirst });
+  await h.call(sup, "supervisor", "set_project", { base: "main", gate: GATE_PASSES, askFirst });
   const opened = await h.call(sup, "supervisor", "open_lane", {
     title: "Cart",
     outcome: "a cart",

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { existsSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { tempDir } from "../tempdir.ts";
+import { escaped, gateStep, heldGate } from "../gates.ts";
 import { harness, laneWithPeer } from "./harness.ts";
 
 /** Whether `check` comes true within `ms`, looked at every 20 ms. */
@@ -12,7 +12,7 @@ async function within(ms: number, check: () => boolean): Promise<boolean> {
   return true;
 }
 
-test("a READY is what the lane's copy holds with nobody writing there, and whatever changes the lane takes it away", async () => {
+test("a READY is what the lane's copy holds with nobody writing there, and whatever changes the lane takes it away", async (t) => {
   const { h, sup, lane, peer } = await laneWithPeer();
   const lead = lane.lead!;
   const copy = lane.worktree!;
@@ -72,7 +72,8 @@ test("a READY is what the lane's copy holds with nobody writing there, and whate
   assert.equal(h.ledger().tasks[side.id]!.status, "merged");
   assert.equal(ready(), undefined);
 
-  await h.call(sup, "supervisor", "set_project", { gate: "test -f c.txt", gateOn: "lane" });
+  const needsC = gateStep("exists", "c.txt");
+  await h.call(sup, "supervisor", "set_project", { gate: needsC, gateOn: "lane" });
   const late = await beside("Late", "d.txt");
   writeFileSync(join(copy, "a.txt"), "being written\n");
   await h.call(lead, "lead", "accept", { task: late.id });
@@ -81,21 +82,20 @@ test("a READY is what the lane's copy holds with nobody writing there, and whate
   h.git(copy, "checkout", "--", "a.txt");
   assert.equal((await report()).ok, true);
   assert.equal(h.ledger().tasks[late.id]!.status, "merged");
-  assert.match(h.heard(sup).join("\n"), /test -f c\.txt passed on the lane branch/);
+  assert.match(h.heard(sup).join("\n"), new RegExp(`${escaped(needsC)} passed on the lane branch`));
 
   // Amended while its gate runs, the lane is not ready: what READY would claim changed under it.
-  const dir = tempDir("sw2-amend-");
-  const [started, go] = [join(dir, "started"), join(dir, "go")];
-  await h.call(sup, "supervisor", "set_project", { gate: `touch ${started}; until [ -f ${go} ]; do sleep 0.05; done` });
+  const held = heldGate(t);
+  await h.call(sup, "supervisor", "set_project", { gate: held.command });
   const reporting = report();
-  assert.ok(await within(5000, () => existsSync(started)), "the gate runs");
+  assert.ok(await within(5000, held.running), "the gate runs");
   const amended = await h.call(sup, "supervisor", "amend_lane", {
     lane: "L1",
     why: "the Human wants one more case",
     acceptance: ["c", "d"],
   });
   assert.equal(amended.ok, true, amended.text);
-  writeFileSync(go, "");
+  held.release();
   const answer = await reporting;
   assert.equal(answer.ok, false, answer.text);
   assert.match(answer.text, /amended while its gate ran/);

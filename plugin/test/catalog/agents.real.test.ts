@@ -2,7 +2,7 @@
 import "../setup.ts";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { hiddenWordsIn } from "../../server/catalog/kit/hidden-words.ts";
@@ -15,8 +15,9 @@ import { materialize, seatDir } from "../../server/catalog/seat/seats.ts";
 import { serversFor } from "../../server/catalog/seat/servers.ts";
 import { resolveTeam, withHarness } from "../../server/catalog/team/team.ts";
 import { readConfig } from "../../server/core/config-file.ts";
-import { executableIn, pathDirs, stateRoot } from "../../server/core/paths.ts";
+import { stateRoot } from "../../server/core/paths.ts";
 import { ANSWER_WITHIN_MS } from "../../server/desk/calls/tool-calls.ts";
+import { fakeBin } from "../fake-bin.ts";
 import { tempDir } from "../tempdir.ts";
 
 const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -58,6 +59,18 @@ test("every role builds on every agent the kit ships, each in that agent's own t
   const home = tempDir("sw2-every-home-");
   const project = { root: "/work/demo", slug: "demo-000000", state: "/state/demo" };
   const agents = Object.values(kit.harnesses).flatMap((harness) => harness.provider.env?.SEATWORKS_AGENT_BIN ?? []);
+  // Each agent that prints a model list stands in here, offering what the kit must take out, so what the seat gets is
+  // read from the kit rather than from whichever agents this machine happens to have installed.
+  const bins = tempDir("sw2-catalogs-");
+  for (const harness of Object.values(kit.harnesses)) {
+    const spec = harness.modelCatalog;
+    if (!spec) continue;
+    const offered = { [spec.list]: [Object.fromEntries(spec.clear.map((key) => [key, "offered"]))] };
+    fakeBin(bins, spec.command[0]!, `process.stdout.write(${JSON.stringify(JSON.stringify(offered))});`);
+  }
+  const path = process.env.PATH;
+  process.env.PATH = `${bins}${delimiter}${path}`;
+  t.after(() => void (process.env.PATH = path));
   for (const { role, harness } of seatPairs(kit)) {
     const where = `${role.role} on ${harness.id}`;
     // A role like another is held to that role's terms.
@@ -95,10 +108,6 @@ test("every role builds on every agent the kit ships, each in that agent's own t
     if (bare) {
       assert.equal(can(role, "write"), false, `${where}: touches no work`);
       assert.deepEqual(stateWrites(role, project.state), [], `${where}: writes nothing under the project's state`);
-    }
-    if (harness.modelCatalog && !executableIn(pathDirs(), harness.modelCatalog.command[0]!)) {
-      t.diagnostic(`${harness.id} is not installed here, so its ${role.role} seat was not built`);
-      continue;
     }
     materialize(
       kit,

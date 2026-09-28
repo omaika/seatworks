@@ -197,12 +197,17 @@ test("a one-writer path a lane changed is noted where an open lane beside it may
   );
 });
 
+/** A path as the shell running the script reads it: on Windows that shell is the one git ships, which takes a backslash for an escape. */
+const scriptPath = (path: string) => `"${process.platform === "win32" ? path.replaceAll("\\", "/") : path}"`;
+
 test("git the desk runs never runs a hook or a command a seat could plant in the repository it shares", async () => {
   const { h, lead } = await laneWriting(["src/**"]);
   const marks = tempDir("sw2-planted-");
-  const plant = (name: string) => `sh -c 'touch "${join(marks, name)}"; cat'`;
+  const mark = (name: string) => scriptPath(join(marks, name));
+  const plant = (name: string) => `sh -c 'touch ${mark(name)}; cat'`;
   const hook = join(h.root, ".git", "hooks", "post-checkout");
-  writeFileSync(hook, `#!/bin/sh\ntouch "${join(marks, "hook")}"\n`);
+  // Git runs a hook, and a filter, through the shell it ships with, on Windows too, and reads no executable bit there.
+  writeFileSync(hook, `#!/bin/sh\ntouch ${mark("hook")}\n`);
   chmodSync(hook, 0o755);
   h.git(h.root, "config", "filter.planted.smudge", plant("smudge"));
   h.git(h.root, "config", "filter.planted.clean", plant("clean"));
@@ -210,8 +215,10 @@ test("git the desk runs never runs a hook or a command a seat could plant in the
   await h.call(lead, "lead", "add_tasks", { tasks: [planned("a", "A", { holds: ["src/**"], parallel: true })] });
   assert.deepEqual(readdirSync(marks), [], "making the task's copy");
   h.commit(h.ledger().lanes.L1!.worktree!, "b.txt", "the lane moved on\n");
-  // The seat's own commit runs what its repository says: that is the seat's, not the desk's.
+  // The seat's own commit runs what its repository says: that is the seat's, not the desk's. It is also what says the
+  // mark is a mark at all, so an empty folder below reads as the desk running nothing, never as a plant that misfired.
   await handBack(h, "L1-T1", ["src/a.ts"]);
+  assert.deepEqual(readdirSync(marks), ["clean"], "the seat's own commit ran the planted filter and left its mark");
   rmSync(marks, { recursive: true });
   mkdirSync(marks);
   await h.call(lead, "lead", "accept", { task: "L1-T1" });
@@ -226,7 +233,7 @@ test("git the desk runs never runs a command planted in a copy's own worktree co
   const copy = h.ledger().lanes.L1!.worktree!;
   h.git(h.root, "config", "core.repositoryFormatVersion", "1");
   h.git(h.root, "config", "extensions.worktreeConfig", "true");
-  h.git(copy, "config", "--worktree", "filter.mine.smudge", `sh -c 'touch "${join(marks, "smudge")}"; cat'`);
+  h.git(copy, "config", "--worktree", "filter.mine.smudge", `sh -c 'touch ${scriptPath(join(marks, "smudge"))}; cat'`);
   writeFileSync(join(h.root, ".git", "info", "attributes"), "src/** filter=mine\n");
   await h.call(lead, "lead", "add_tasks", { tasks: [planned("a", "A", { holds: ["src/**"], parallel: true })] });
   await handBack(h, "L1-T1", ["src/a.ts"]);
@@ -234,7 +241,13 @@ test("git the desk runs never runs a command planted in a copy's own worktree co
   await h.runtime.desk.settled(h.project);
   assert.equal(h.ledger().tasks["L1-T1"]!.status, "merged");
   assert.equal(readFileSync(join(copy, "src", "a.ts"), "utf-8"), "src/a.ts\n", "the merge wrote the file");
-  assert.deepEqual(readdirSync(marks), []);
+  assert.deepEqual(readdirSync(marks), [], "and ran nothing the copy's own worktree config names");
+  // The copy's own git does run what that config says, and only once the merge has put the file there can it. That is
+  // what says the plant can fire at all, so the empty folder above reads as the desk running nothing, never as a
+  // filter that never started.
+  rmSync(join(copy, "src", "a.ts"));
+  h.git(copy, "checkout", "--", "src/a.ts");
+  assert.deepEqual(readdirSync(marks), ["smudge"], "the copy's own checkout ran the planted filter and left its mark");
 });
 
 test("a copy the desk made is locked in git, marked as the desk's, while its work goes on, and let go with it", async () => {

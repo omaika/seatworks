@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { harness } from "./harness.ts";
+import { GATE_PASSES } from "../gates.ts";
 
 type Harness = ReturnType<typeof harness>;
 
@@ -17,7 +18,7 @@ test("a base that conflicts with a lane leaves nothing in its copy, its Lead has
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
   const land = (lane: string) => h.call(sup, "supervisor", "land_lane", { lane });
-  await h.call(sup, "supervisor", "set_project", { gate: "true" });
+  await h.call(sup, "supervisor", "set_project", { gate: GATE_PASSES });
   await h.call(sup, "supervisor", "open_lane", {
     title: "Cart",
     outcome: "x",
@@ -216,7 +217,7 @@ test("the merge queue hands a conflict to its Peer, merges nothing as nothing, w
 test("a landing tells each lane still open on its base what now conflicts with it, and whoever landed it which lanes", async () => {
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
-  await h.call(sup, "supervisor", "set_project", { gate: "true" });
+  await h.call(sup, "supervisor", "set_project", { gate: GATE_PASSES });
   const open = (title: string) =>
     h.call(sup, "supervisor", "open_lane", { title, outcome: "x", ...scope, writeSet: ["a.txt"], isolate: true });
   await open("First");
@@ -249,7 +250,7 @@ test("a landing tells each lane still open on its base what now conflicts with i
 test("a base that git says conflicts with a lane without naming a file is a conflict too, told as git words it", async () => {
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
-  await h.call(sup, "supervisor", "set_project", { gate: "true" });
+  await h.call(sup, "supervisor", "set_project", { gate: GATE_PASSES });
   mkdirSync(join(h.root, "d"));
   writeFileSync(join(h.root, "d", "a.txt"), "a\n");
   h.commit(h.root, "d/b.txt", "b\n");

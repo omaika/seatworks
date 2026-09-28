@@ -49,7 +49,10 @@ export function configFault(path: string): string | undefined {
     : undefined;
 }
 
-/** Written whole or not at all, because a harness may be reading it while this runs. */
+/**
+ * Written whole or not at all, because a harness may be reading it while this runs. `mode` keeps a file that carries a key
+ * to its owner on POSIX; on Windows, where Node can set no ACL, that falls to the DACL inherited from the user's profile.
+ */
 export function writeConfigAtomic(path: string, text: string, mode = 0o600): void {
   const staging = `${path}.${process.pid}.tmp`;
   try {

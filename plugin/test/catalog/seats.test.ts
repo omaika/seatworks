@@ -5,11 +5,11 @@ import {
   mkdirSync,
   readFileSync,
   readlinkSync,
-  symlinkSync,
+  realpathSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, delimiter, dirname, join } from "node:path";
 import { test } from "node:test";
 import { type Kit, loadKit } from "../../server/catalog/kit/kit.ts";
 import { seatPairs } from "../../server/catalog/paseo/providers.ts";
@@ -18,6 +18,7 @@ import { sweepSnapshots } from "../../server/catalog/seat/snapshots.ts";
 import { serversFor } from "../../server/catalog/seat/servers.ts";
 import { resolveTeam, withHarness } from "../../server/catalog/team/team.ts";
 import { readConfig } from "../../server/core/config-file.ts";
+import { makeLink } from "../../server/core/fs.ts";
 import { contentRoot } from "../../server/core/paths.ts";
 import { reported } from "../console.ts";
 import { makeKit } from "../kit.ts";
@@ -58,7 +59,7 @@ test("a Claude seat per project writes shared plus role settings, links skills a
       projects: { "/x": { mcpServers: { rogue: {} }, trust: true } },
     }),
   );
-  symlinkSync(join(kit.dir, "harness/claude/settings/lead.settings.json"), join(dir, "settings.json"));
+  makeLink(join(dir, "settings.json"), join(kit.dir, "harness/claude/settings/lead.settings.json"));
 
   const changes = materialize(kit, team, "lead", home, project, serversFor(kit, team, "lead", context));
   assert.ok(changes.length > 0);
@@ -68,9 +69,13 @@ test("a Claude seat per project writes shared plus role settings, links skills a
     autoMemoryEnabled: false,
     permissions: { deny: ["WebSearch", "Agent"] },
   });
-  assert.equal(readlinkSync(join(dir, "projects")), join(home, ".claude", "projects"));
-  const skill = readlinkSync(join(dir, "skills", "ide-guide"));
-  assert.equal(dirname(skill), contentRoot(home), "a skill links to a copy under the state, not into the kit");
+  assert.equal(realpathSync(join(dir, "projects")), realpathSync(join(home, ".claude", "projects")));
+  const skill = realpathSync(join(dir, "skills", "ide-guide"));
+  assert.equal(
+    dirname(skill),
+    realpathSync(contentRoot(home)),
+    "a skill links to a copy under the state, not into the kit",
+  );
   assert.equal(
     readFileSync(join(skill, "SKILL.md"), "utf-8"),
     readFileSync(join(kit.dir, "catalog/mcp/ide/skills/ide-guide/SKILL.md"), "utf-8"),
@@ -126,7 +131,7 @@ test("a seat whose harness reads its servers from a file gets that file and its 
     writeFileSync(join(dir, harness.settings.file), own);
     const outside = join(tempDir("sw2-outside-"), "AGENTS.md");
     writeFileSync(outside, "project rules that must not change");
-    symlinkSync(outside, join(dir, "AGENTS.md"));
+    makeLink(join(dir, "AGENTS.md"), outside);
 
     const servers = serversFor(kit, team, "peer", context);
     assert.ok(materialize(kit, team, "peer", home, project, servers).length > 0, id);
@@ -399,6 +404,86 @@ test("an agent configured in its own file format gets its catalog trimmed, its s
     { message: /lead\.settings\.toml could not be read/ },
     "a role's settings that cannot be read seat no one, rather than a seat without its sandbox",
   );
+});
+
+/** The fixture agent with only its catalog command changed, which is all these two tests turn on. */
+function withCatalog(
+  command: string[],
+  home = tempDir("sw2-cx-home-"),
+): { kit: Kit; team: ReturnType<typeof resolveTeam>; dir: string; home: string } {
+  const kit = withAgent("cx", {
+    "harness.json": cx(command),
+    "settings.toml": "",
+    "settings/lead.settings.toml": "",
+    "rules/all.rules": "",
+    "rules/lead.rules": "",
+  });
+  const team = withHarness(resolveTeam(kit), "lead", kit.harnesses.cx!);
+  return { kit, team, home, dir: seatDir(kit, team.roles.lead!.role, kit.harnesses.cx!, home, project) };
+}
+
+test("a seat is built where the agent's own CLI is not installed at all, and the catalog it goes without is said, not passed over", (t) => {
+  const said = t.mock.method(console, "log", () => {});
+  const offering = "process.stdout.write(JSON.stringify({models:[{slug:'a',multi_agent_version:'v2'}]}))";
+  const home = tempDir("sw2-cx-home-");
+  const had = withCatalog(["node", "-e", offering], home);
+  materialize(had.kit, had.team, "lead", home, project, {});
+  assert.equal(existsSync(join(had.dir, "catalog.json")), true, "a build that could read the list wrote one");
+
+  const { kit, team, dir } = withCatalog(["cx-that-is-on-no-machine", "debug", "models"], home);
+  const changes = materialize(kit, team, "lead", home, project, {});
+  assert.equal(
+    readConfig<{ model_catalog_json?: string }>(join(dir, "config.toml"), {}).model_catalog_json,
+    undefined,
+    "the seat is still built, and named no catalog that could not be read",
+  );
+  assert.ok(
+    changes.includes("no catalog.json: cx-that-is-on-no-machine is not installed here"),
+    `the seat's own line says the limit is off, so the daemon's log carries it: ${changes.join(", ")}`,
+  );
+  assert.equal(
+    existsSync(join(dir, "catalog.json")),
+    false,
+    "and the list an earlier build wrote is taken away, not left behind with nothing naming it",
+  );
+  assert.match(
+    said.mock.calls.map((call) => String(call.arguments[0])).join("\n"),
+    /cx-that-is-on-no-machine is not installed here, so no Cx seat is held to the models `cx-that-is-on-no-machine debug models` lists/,
+  );
+});
+
+test("the catalog's command is found on PATH as every other command the plugin runs is, so one installed as a .cmd is run too", (t) => {
+  const bin = tempDir("sw2-bin-");
+  const windows = process.platform === "win32";
+  const name = `cx-models${windows ? ".cmd" : ""}`;
+  writeFileSync(
+    join(bin, name),
+    windows
+      ? '@echo {"models":[{"slug":"a","multi_agent_version":"v2"}]}\r\n'
+      : '#!/bin/sh\nprintf \'{"models":[{"slug":"a","multi_agent_version":"v2"}]}\'\n',
+    { mode: 0o755 },
+  );
+  const path = process.env.PATH ?? "";
+  t.after(() => (process.env.PATH = path));
+  process.env.PATH = `${bin}${delimiter}${path}`;
+
+  const { kit, team, home, dir } = withCatalog(["cx-models"]);
+  materialize(kit, team, "lead", home, project, {});
+  const named = readConfig<{ model_catalog_json?: string }>(join(dir, "config.toml"), {}).model_catalog_json;
+  assert.equal(named, join(dir, "catalog.json"), "the catalog was read from a command only PATH names");
+  assert.deepEqual(readConfig(named, {}), { models: [{ slug: "a", multi_agent_version: null }] });
+});
+
+test("a catalog command that names its own path is run from there, not looked for on PATH", () => {
+  const offering = "process.stdout.write(JSON.stringify({models:[{slug:'a',multi_agent_version:'v2'}]}))";
+  const { kit, team, home, dir } = withCatalog([process.execPath, "-e", offering]);
+  materialize(kit, team, "lead", home, project, {});
+  assert.equal(
+    readConfig<{ model_catalog_json?: string }>(join(dir, "config.toml"), {}).model_catalog_json,
+    join(dir, "catalog.json"),
+    "a command already holding its own path is not looked for on PATH and reported missing",
+  );
+  assert.deepEqual(readConfig(join(dir, "catalog.json"), {}), { models: [{ slug: "a", multi_agent_version: null }] });
 });
 
 test("an owner's own agent config a seat takes keys from, when it cannot be read, is said in the daemon's log, and the seat takes none of it", (t) => {

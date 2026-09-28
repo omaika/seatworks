@@ -9,6 +9,7 @@ import type { Pending } from "./fake-paseo.ts";
 import { harness, laneWithPeer } from "./harness.ts";
 import { laneWith } from "./landable.ts";
 import { tempDir } from "../tempdir.ts";
+import { GATE_FAILS, GATE_PASSES } from "../gates.ts";
 
 type Harness = ReturnType<typeof harness>;
 
@@ -308,7 +309,7 @@ test("the Report tells from the record what needs the Human, widest stop first, 
 
   const landing = harness();
   const boss = landing.add("sw2-supervisor-claude/claude-opus-5", landing.root, "sup");
-  await landing.call(boss, "supervisor", "set_project", { gate: "true" });
+  await landing.call(boss, "supervisor", "set_project", { gate: GATE_PASSES });
   await landing.call(boss, "supervisor", "open_lane", {
     title: "Cart",
     outcome: "a cart",
@@ -348,7 +349,7 @@ test("with the Human out of the loop, the Report lists what was decided for them
   await h.permission(lane.lead!, asked);
   const permitted = { from: "L1", request: "p-1", allow: true, why: "it stays in its copy" };
   assert.equal((await h.call(sup, "supervisor", "permit", permitted)).ok, true);
-  await h.call(sup, "supervisor", "set_project", { gate: "false" });
+  await h.call(sup, "supervisor", "set_project", { gate: GATE_FAILS });
   assert.equal((await land()).ok, false);
   const over = { lane: "L1", overGate: true, reason: "the gate is broken, not the cart" };
   assert.equal((await h.call(sup, "supervisor", "land_lane", over)).ok, true);

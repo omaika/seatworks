@@ -9,8 +9,8 @@ import { deskSocket, stateRoot } from "../../server/core/paths.ts";
 import type { TeamSocket } from "../../server/runtime/seat/team-socket.ts";
 import { contracts } from "../../shared/rpc.ts";
 import { reported } from "../console.ts";
-import { tempDir } from "../tempdir.ts";
 import { harness } from "./harness.ts";
+import { heldGate } from "../gates.ts";
 
 type Harness = ReturnType<typeof harness>;
 type Heard = {
@@ -59,12 +59,11 @@ const addTask = (id: string, title: string, holds: string) => ({
 });
 
 test("a seat's line to the desk carries its choices and its calls, and a call stopped on either side, or made before a reload is reached, is carried out and mailed", async (t) => {
-  const go = join(tempDir("sw2-line-"), "go");
-  t.after(() => writeFileSync(go, ""));
+  const gate = heldGate(t);
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
   // The lane's gate waits for the test, so a report is still being worked on when its caller stops it.
-  await h.call(sup, "supervisor", "set_project", { gate: `until [ -f ${go} ]; do sleep 0.05; done`, gateOn: "lane" });
+  await h.call(sup, "supervisor", "set_project", { gate: gate.command, gateOn: "lane" });
   await h.call(sup, "supervisor", "open_lane", {
     title: "Build",
     outcome: "a.txt changes",
@@ -135,7 +134,7 @@ test("a seat's line to the desk carries its choices and its calls, and a call st
   assert.ok(await mailed("status"), "an answer that reached the line but not the harness");
   say({ type: "call", id: "report", tool: "report", args: { summary: "done", ready: true } });
   say({ type: "cancel", id: "report" });
-  writeFileSync(go, "");
+  gate.release();
   assert.ok(await mailed("report"), "stopped before its answer came, it is mailed once its gate is done");
 
   // Loaded again, the plugin has Paseo's API only once a hook or a panel call brings it.
