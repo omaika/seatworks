@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import type { TestContext } from "node:test";
 import { test } from "node:test";
@@ -248,4 +248,59 @@ test("a seat's git works only in its own copy of the project: the Human's checko
     const ran = git(cwd, ...args);
     assert.match(ran.stderr, /^git: refused: this git works in [^\n]*, not in your own copy/, where);
   }
+});
+
+/**
+ * seat-bin read afresh while this process says it is Windows: that module settles which platform it writes for as it
+ * loads, so the Windows arm is only reachable from another machine through a load of its own.
+ */
+const seatBinSayingWin32 = async (): Promise<typeof seatBin> => {
+  const fresh: unknown = await import(
+    `${new URL("../../server/catalog/seat/seat-bin.ts", import.meta.url).href}?win32`
+  );
+  return (fresh as { seatBin: typeof seatBin }).seatBin;
+};
+
+test("on Windows a seat's PATH directory holds a batch file beside each script, since cmd runs no shell script", async (t) => {
+  const was = Object.getOwnPropertyDescriptor(process, "platform")!;
+  const path = process.env.PATH;
+  t.after(() => {
+    Object.defineProperty(process, "platform", was);
+    process.env.PATH = path;
+  });
+  // A git named as Windows installs it, so the directory is written for a machine that has one.
+  const found = tempDir("sw2-shim-win-path-");
+  writeFileSync(join(found, "git.exe"), "", { mode: 0o755 });
+  const mine = tempDir("sw2-shim-win-own-");
+  writeFileSync(join(mine, "refused.json"), JSON.stringify({ hub: "100% the desk's, & (its own)" }));
+  const kit = loadKit(PLUGIN, mine);
+  Object.defineProperty(process, "platform", { ...was, value: "win32" });
+  process.env.PATH = found;
+
+  const dir = (await seatBinSayingWin32())(kit, tempDir("sw2-shim-win-state-"))!;
+  assert.deepEqual(
+    readdirSync(dir).sort(),
+    ["git", "git.cmd", "hub", "hub.cmd"],
+    "one of each: the batch file cmd and PowerShell find, and the script the Git Bash some agents run commands in finds",
+  );
+  const read = (name: string) => readFileSync(join(dir, name), "utf-8");
+  assert.match(read("git"), /^#!\/bin\/sh\n/, "the script is what it is on every platform");
+  const batch = read("git.cmd");
+  assert.match(batch, /^@echo off\r\n/, "a batch file cmd does not echo back at the seat");
+  assert.deepEqual(
+    batch.split("\r\n").filter((line) => line.includes("\n")),
+    [],
+    "with the line ends cmd needs",
+  );
+  assert.ok(
+    batch.includes(`"${join(found, "git.exe")}"`) && batch.includes(`"${join(kit.dir, "bin", "git-shim.mjs")}"`),
+    "running the kit's shim over the git the seat's PATH finds past it, each path quoted against a space in it",
+  );
+  assert.match(batch, /%\*\r\n$/, "and handed every argument the seat gave");
+  const refusal = read("hub.cmd");
+  assert.ok(
+    refusal.includes(">&2 echo hub: refused: 100%% the desk's, ^& ^(its own^)."),
+    "a refusal says why on cmd's own terms, where &, ( and ) start something and % reads a variable",
+  );
+  assert.match(refusal, /exit \/b 1\r\n$/, "and fails, as the script does");
 });

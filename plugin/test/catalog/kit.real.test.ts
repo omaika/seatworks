@@ -350,3 +350,36 @@ test("the preset reads what the watch sees with both brains: the kit's sensor si
   assert.deepEqual([brains.mode, brains.sensor?.id, brains.seat], ["both", "jev", "watcher"]);
   assert.equal(brains.sensor?.key, undefined, "a sensor with no key asks nothing until the owner gives one");
 });
+
+test("every role can be pointed at one agent alone, and what a fresh machine's agent still waits for is a model", () => {
+  const kit = loadKit(PLUGIN);
+  for (const [id, harness] of Object.entries(kit.harnesses)) {
+    const all = (model?: string) =>
+      Object.fromEntries(kit.roles.map((role) => [role.role, { harness: id, ...(model ? { model } : {}) }]));
+    const named = resolveTeam(kit, { ...allOn(kit), roles: all(`${id}-1`) });
+    assert.deepEqual(named.errors, [], `a team all on ${id}, with a model named outright`);
+    assert.deepEqual(
+      Object.values(named.roles).map((seat) => seat.harness.id),
+      kit.roles.map(() => id),
+      `every role seated on ${id}: its settings, its tools and its servers are all there on that agent alone`,
+    );
+    // With no model named, a role has its own preset for its own agent; on any other, it waits for Paseo's list of that
+    // agent's models, and nothing else stands in its way.
+    const waiting =
+      (harness.models ?? []).length > 0
+        ? []
+        : kit.roles.filter((role) => !(role.defaults.harness === id && role.defaults.model));
+    const bare = resolveTeam(kit, { ...allOn(kit), roles: all() });
+    assert.equal(
+      bare.errors.length,
+      waiting.length,
+      `a team all on ${id}, with no model named: ${bare.errors[0] ?? ""}`,
+    );
+    for (const role of waiting)
+      assert.equal(
+        bare.errors.filter((error) => error.includes(harness.label) && error.includes(role.label)).length,
+        1,
+        `${role.label} on ${id} waits for a model, and is told which agent's`,
+      );
+  }
+});
