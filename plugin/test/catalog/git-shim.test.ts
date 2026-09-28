@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import type { TestContext } from "node:test";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadKit } from "../../server/catalog/kit/kit.ts";
 import { executableIn, pathDirs } from "../../server/core/paths.ts";
 import { seatBin } from "../../server/catalog/seat/seat-bin.ts";
@@ -223,6 +223,11 @@ test("a seat settles what conflicts on its task's branch through its git: mergin
 
   real("switch", "-q", "task/l1-t1-cart");
   assert.equal(git("rebase", "main").status === 0, false, "a rebase that stops on a conflict stops as git's own");
+  assert.equal(
+    git("-c", "rebase.updateRefs=true", "rebase", "--show-current-patch").status,
+    0,
+    "it reads where it stopped whatever rebase.updateRefs says",
+  );
   assert.ok(!refused("rebase", "--abort"), "and the seat may back out of it");
   const merged = git("merge", "main");
   assert.ok(!/^git: refused/.test(merged.stderr), "the base merged into its own branch, to settle what conflicts");
@@ -325,3 +330,216 @@ test("on Windows a seat's PATH directory holds a batch file beside each script, 
   );
   assert.match(refusal, /exit \/b 1\r\n$/, "and fails, as the script does");
 });
+
+const REF_MOVES: [string, string[]][] = [
+  ["fetch into a local branch", ["fetch", "origin", "main:other"]],
+  ["fetch forced into one", ["fetch", "origin", "+main:other"]],
+  ["fetch by a glob of branches", ["fetch", "origin", "+refs/heads/*:refs/heads/*"]],
+  ["fetch naming where a remote-tracking ref lands", ["fetch", "origin", "main:refs/remotes/origin/main"]],
+  ["fetch from this repository itself", ["fetch", ".", "main:other"]],
+  ["fetch whose refspecs come from stdin", ["fetch", "--stdin", "origin"]],
+  ["fetch mapped into local branches", ["fetch", "--refmap=+refs/heads/*:refs/heads/*", "origin", "main"]],
+  ["fetch forced, which clobbers tags", ["fetch", "--force", "origin"]],
+  ["fetch forced in a cluster", ["fetch", "-pf", "origin"]],
+  ["fetch pruning local tags", ["fetch", "--prune-tags", "origin"]],
+  ["fetch pruning tags, short", ["fetch", "-P", "origin"]],
+  ["tag -f", ["tag", "-f", "v1"]],
+  ["tag --force, cut short", ["tag", "--forc", "v1", "HEAD"]],
+  ["tag forced in a cluster", ["tag", "-fam", "note", "v1"]],
+  ["tag -d", ["tag", "-d", "v1"]],
+  ["tag --delete", ["tag", "--delete", "v1"]],
+  ["symbolic-ref pointing HEAD elsewhere", ["symbolic-ref", "HEAD", "refs/heads/other"]],
+  ["symbolic-ref with a reason", ["symbolic-ref", "-m", "why", "HEAD", "refs/heads/other"]],
+  ["symbolic-ref -d", ["symbolic-ref", "-d", "refs/heads/alias"]],
+  ["symbolic-ref --delete", ["symbolic-ref", "--delete", "refs/heads/alias"]],
+  ["replace one object by another", ["replace", "HEAD", "HEAD~1"]],
+  ["replace --graft", ["replace", "--graft", "HEAD"]],
+  ["replace -d", ["replace", "-d", "HEAD"]],
+  ["reflog delete that moves the ref back", ["reflog", "delete", "--updateref", "other@{0}"]],
+  ["reflog expire that moves refs back", ["reflog", "expire", "--updateref", "--all"]],
+  ["replay, which updates the refs it replays", ["replay", "--onto", "main", "main..other"]],
+  ["rebase naming another branch, which checks it out", ["rebase", "main", "other"]],
+  ["rebase --root naming another branch", ["rebase", "--root", "other"]],
+  ["rebase naming a commit, which detaches HEAD", ["rebase", "main", "HEAD~1"]],
+  ["rebase --update-refs", ["rebase", "--update-refs", "main"]],
+  ["rebase with rebase.updateRefs set", ["-c", "rebase.updateRefs=true", "rebase", "main"]],
+  ["remote rename", ["remote", "rename", "origin", "upstream"]],
+  ["remote remove", ["remote", "remove", "origin"]],
+  ["remote rm", ["remote", "rm", "origin"]],
+  ["subtree split into a branch", ["subtree", "split", "-P", "dir", "-b", "other"]],
+  ["subtree push", ["subtree", "push", "-P", "dir", "origin", "main"]],
+  ["filter-branch", ["filter-branch", "--", "--all"]],
+  ["filter-repo", ["filter-repo", "--force"]],
+  ["fast-import", ["fast-import"]],
+  ["send-pack", ["send-pack", ".", "main:other"]],
+  ["http-push", ["http-push", "http://example.invalid/", "main"]],
+  ["receive-pack", ["receive-pack", "."]],
+  ["rebase --root cut short, naming another branch", ["rebase", "--roo", "other"]],
+  [
+    "fetch through a refspec given as config",
+    ["-c", "remote.origin.fetch=+refs/heads/main:refs/heads/other", "fetch", "origin"],
+  ],
+  [
+    "fetch of one branch, which a refspec given as config also lands",
+    ["-c", "remote.origin.fetch=+refs/heads/main:refs/heads/other", "fetch", "origin", "main"],
+  ],
+  ["remote add as a mirror", ["remote", "add", "--mirror=fetch", "copy", "elsewhere"]],
+  ["history reword, which rewrites every branch holding the commit", ["history", "reword", "HEAD~1"]],
+  ["history split", ["history", "split", "HEAD"]],
+  ["bisect reset to another commit", ["bisect", "reset", "main"]],
+];
+
+test("a seat's git refuses every spelling that moves a ref other than its own branch, and runs what moves nothing else", () => {
+  const root = tempDir("sw2-shim-refs-");
+  const origin = tempDir("sw2-shim-refs-origin-");
+  const real = (...args: string[]) =>
+    execFileSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@x", ...args], { encoding: "utf-8" });
+  execFileSync("git", ["-C", origin, "init", "-q", "-b", "main"]);
+  execFileSync("git", [
+    "-C",
+    origin,
+    "-c",
+    "user.name=t",
+    "-c",
+    "user.email=t@x",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "seed",
+  ]);
+  real("init", "-q", "-b", "main");
+  real("remote", "add", "origin", origin);
+  real("fetch", "-q", "origin");
+  real("reset", "-q", "--hard", "origin/main");
+  real("branch", "other");
+  real("tag", "v1");
+  real("switch", "-qc", "task/l1-t1-cart");
+  writeFileSync(join(root, "a.txt"), "task\n");
+  real("add", "a.txt");
+  real("commit", "-q", "-m", "task");
+  const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-shim-refs-state-"))!;
+  const git = (...args: string[]) => shimGit(dir, ["-C", root, "-c", "user.name=t", "-c", "user.email=t@x", ...args]);
+
+  const passed = REF_MOVES.filter(([, args]) => !/^git: refused: /.test(git(...args).stderr)).map(([why]) => why);
+  assert.deepEqual(passed, [], "each spelling that moves a ref other than the seat's own branch");
+  const refs = real("for-each-ref", "--format=%(refname) %(objectname)");
+  const allowed = [
+    ["fetch", "origin"],
+    ["fetch", "--prune", "origin"],
+    ["fetch", "origin", "main"],
+    ["fetch", "--depth", "1", pathToFileURL(origin).href, "main"],
+    ["fetch", "--all"],
+    ["tag", "v2"],
+    ["tag", "-a", "-m", "note", "v3"],
+    ["tag", "--sort", "-creatordate"],
+    ["symbolic-ref", "HEAD"],
+    ["symbolic-ref", "--short", "-q", "HEAD"],
+    ["replace", "-l"],
+    ["replay", "--ref-action=print", "--onto", "main", "main..other"],
+    ["rebase", "main", "task/l1-t1-cart"],
+    ["-c", "rebase.updateRefs=true", "rebase", "--no-update-refs", "main"],
+    ["reflog"],
+    ["notes", "add", "-m", "seen"],
+    ["remote", "-v"],
+    ["remote", "add", "copy", origin],
+    ["rebase", "--empty", "drop", "main"],
+    ["rebase", "--whitespace", "fix", "main"],
+    ["rebase", "--ont", "main", "main"],
+    ["rebase", "--exe", "true", "main"],
+    ["rebase", "--strategy-opt", "theirs", "main"],
+    ["-c", "sequence.editor=true", "rebase", "-ix", "true", "main"],
+    ["tag", "-a", "-m", "-df", "v9"],
+    ["replace", "--format", "short"],
+    ["replay", "--ref-action", "print", "--onto", "main", "main..other"],
+    ["-c", "core.editor=true", "history", "reword", "--update-refs=head", "HEAD"],
+    ["bisect", "start", "HEAD", "main"],
+    ["bisect", "reset"],
+  ];
+  const failed = allowed.flatMap((args) => {
+    const ran = git(...args);
+    return ran.status === 0 ? [] : [`${args.join(" ")}: ${ran.stderr}`];
+  });
+  assert.deepEqual(failed, [], "each spelling that moves nothing past the seat's own branch runs");
+  const stopped = ["--continue", "--abort", "--skip", "--quit", "--edit-todo", "--show-current-patch"].filter(
+    (action) => /^git: refused: /.test(git("-c", "rebase.updateRefs=true", "rebase", action).stderr),
+  );
+  assert.deepEqual(stopped, [], "a rebase under way goes on or backs out whatever rebase.updateRefs says");
+  const moved = new Set(real("for-each-ref", "--format=%(refname) %(objectname)").split("\n"));
+  assert.deepEqual(
+    refs
+      .split("\n")
+      .filter((line) => line.startsWith("refs/heads/") && !line.startsWith("refs/heads/task/") && !moved.has(line)),
+    [],
+    "and no branch but the seat's own moved",
+  );
+
+  real("remote", "add", "up", origin);
+  real("config", "--add", "remote.up.fetch", "+refs/notes/*:refs/notes/*");
+  const bare = git("fetch");
+  assert.equal(bare.status, 0, `a bare fetch reads only the remote it fetches, here origin: ${bare.stderr}`);
+  real("remote", "add", "--mirror=fetch", "mirror", origin);
+  real("config", "--add", "remote.origin.fetch", "+refs/heads/main:refs/heads/other");
+  const unseen = [
+    ["fetch", "mirror"],
+    ["fetch", "--all"],
+    ["-c", "branch.task/l1-t1-cart.remote=up", "fetch"],
+    ["fetch"],
+    ["fetch", "origin"],
+    ["remote", "update"],
+  ].filter((args) => !/^git: refused: /.test(git(...args).stderr));
+  assert.deepEqual(unseen, [], "nor does a refspec the repository's config holds move a local branch unseen");
+});
+
+test(
+  "a seat's git that cannot list a command's options refuses that command in a repository, saying which git it needs",
+  { skip: WIN && "a git of the test's own making is a script, and the shim on Windows starts only a git.exe" },
+  (t) => {
+    const found = executableIn(pathDirs(), "git")!;
+    const old = tempDir("sw2-shim-old-git-");
+    writeFileSync(
+      join(old, "git"),
+      `#!/bin/sh\ncase "$*" in *--git-completion-helper*) exit 129 ;; esac\nexec ${shQuoted(found)} "$@"\n`,
+      { mode: 0o755 },
+    );
+    const path = process.env.PATH;
+    t.after(() => {
+      process.env.PATH = path;
+    });
+    process.env.PATH = `${old}${delimiter}${path ?? ""}`;
+    const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-shim-old-git-state-"))!;
+    const root = tempDir("sw2-shim-old-git-repo-");
+    execFileSync("git", ["-C", root, "init", "-q", "-b", "main"]);
+    execFileSync("git", [
+      "-C",
+      root,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@x",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "seed",
+    ]);
+    execFileSync("git", ["-C", root, "branch", "other"]);
+    const git = (...args: string[]) => shimGit(dir, ["-C", root, ...args]);
+
+    for (const args of [
+      ["fetch", "--forc", "origin"],
+      ["rebase", "--roo", "other"],
+    ])
+      assert.match(
+        git(...args).stderr,
+        /^git: refused: git could not list the options of git (fetch|rebase)[^\n]*git 2\.18 or newer/,
+        args.join(" "),
+      );
+    assert.equal(git("branch").status, 0, "a command given no long option has none to read");
+    assert.doesNotMatch(
+      shimGit(dir, ["-C", tempDir("sw2-shim-old-git-bare-"), "tag", "--list"]).stderr,
+      /^git: refused/,
+      "outside a repository there is no ref to move",
+    );
+  },
+);
