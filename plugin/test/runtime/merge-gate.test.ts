@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../tempdir.ts";
@@ -181,6 +181,27 @@ test("what the gate did reaches the Lead: with the hand-back, when its verdict i
     after(h, lead, `MERGED ${ungated.id}`),
     /Gate: not run on merges, so the lane branch can break between reports; it runs on the whole lane when you report it ready/,
   );
+});
+
+test("a Maven wrapper's gate, found from the project's files, starts in this platform's shell and its exit decides the gate", async () => {
+  const h = harness();
+  const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
+  // The wrapper as Maven ships it, both forms: each fails while the project holds `red`, as its tests would.
+  writeFileSync(join(h.root, "mvnw"), "#!/bin/sh\nif [ -f red ]; then exit 3; fi\n");
+  chmodSync(join(h.root, "mvnw"), 0o755);
+  writeFileSync(join(h.root, "mvnw.cmd"), "@echo off\r\nif exist red exit /b 3\r\nexit /b 0\r\n");
+  h.commit(h.root, "pom.xml", "<project/>\n");
+  await h.call(sup, "supervisor", "open_lane", {
+    title: "Maven",
+    outcome: "the project gains files",
+    acceptance: ["a"],
+    outOfScope: ["anything else"],
+  });
+  const lead = h.ledger().lanes.L1!.lead!;
+  const green = await handedBack(h, lead, "Green", "a.txt");
+  assert.match(after(h, lead, `HANDBACK ${green.id}`), /Gate: \S*mvnw\S* -q test passed in/);
+  const red = await handedBack(h, lead, "Red", "red");
+  assert.match(after(h, lead, `HANDBACK ${red.id}`), /Gate: \S*mvnw\S* -q test: the gate failed with exit 3;/);
 });
 
 test("a change a risk rule reaches is rehearsed with its gate, and a red rehearsal keeps it out as a red gate does", async () => {

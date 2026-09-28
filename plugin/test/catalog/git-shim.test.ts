@@ -203,7 +203,7 @@ test("a seat's shell, on the PATH the desk gives it, refuses what only the desk 
   }
 });
 
-test("a seat settles what conflicts on its task's branch through its git: merging the base in, rebasing and backing out, resetting its own history", () => {
+test("a seat settles what conflicts on its task's branch through its git: picking a commit from the base, merging it in, rebasing and backing out, resetting its own history", () => {
   const root = tempDir("sw2-shim-own-");
   const real = (...args: string[]) =>
     execFileSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@x", ...args], { encoding: "utf-8" });
@@ -217,11 +217,17 @@ test("a seat settles what conflicts on its task's branch through its git: mergin
   real("switch", "-q", "main");
   writeFileSync(join(root, "a.txt"), "base\n");
   real("commit", "-qam", "base");
+  writeFileSync(join(root, "b.txt"), "fix\n");
+  real("add", "b.txt");
+  real("commit", "-qm", "fix");
   const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-shim-own-state-"))!;
   const git = (...args: string[]) => shimGit(dir, ["-C", root, "-c", "user.name=t", "-c", "user.email=t@x", ...args]);
   const refused = (...args: string[]) => /^git: refused: /.test(git(...args).stderr);
 
   real("switch", "-q", "task/l1-t1-cart");
+  const picked = git("cherry-pick", "main");
+  assert.equal(picked.status, 0, `a fix from the base picked onto its own branch: ${picked.stderr}`);
+  assert.equal(real("log", "-1", "--format=%s"), "fix\n");
   assert.equal(git("rebase", "main").status === 0, false, "a rebase that stops on a conflict stops as git's own");
   assert.equal(
     git("-c", "rebase.updateRefs=true", "rebase", "--show-current-patch").status,
@@ -389,7 +395,7 @@ const REF_MOVES: [string, string[]][] = [
   ["bisect reset to another commit", ["bisect", "reset", "main"]],
 ];
 
-test("a seat's git refuses every spelling that moves a ref other than its own branch, and runs what moves nothing else", () => {
+test("a seat's git refuses every spelling that moves a ref other than its own branch, and runs what moves nothing else", (t) => {
   const root = tempDir("sw2-shim-refs-");
   const origin = tempDir("sw2-shim-refs-origin-");
   const real = (...args: string[]) =>
@@ -424,6 +430,15 @@ test("a seat's git refuses every spelling that moves a ref other than its own br
   const passed = REF_MOVES.filter(([, args]) => !/^git: refused: /.test(git(...args).stderr)).map(([why]) => why);
   assert.deepEqual(passed, [], "each spelling that moves a ref other than the seat's own branch");
   const refs = real("for-each-ref", "--format=%(refname) %(objectname)");
+  // A row that needs an option this git lacks is left out, and the run says so: the shim still takes git 2.18.
+  const offers = (option: string, ...path: string[]) => {
+    const listed = spawnSync("git", ["-C", root, ...path, "--git-completion-helper-all"], { encoding: "utf-8" });
+    const has = listed.status === 0 && listed.stdout.split(/\s+/).includes(option);
+    if (!has) t.diagnostic(`this git's ${path.join(" ")} has no ${option}: nothing ran the rows that need it`);
+    return has;
+  };
+  const printsReplay = offers("--ref-action=", "replay");
+  const rewordsHead = offers("--update-refs=", "history", "reword");
   const allowed = [
     ["fetch", "origin"],
     ["fetch", "--prune", "origin"],
@@ -436,7 +451,7 @@ test("a seat's git refuses every spelling that moves a ref other than its own br
     ["symbolic-ref", "HEAD"],
     ["symbolic-ref", "--short", "-q", "HEAD"],
     ["replace", "-l"],
-    ["replay", "--ref-action=print", "--onto", "main", "main..other"],
+    ...(printsReplay ? [["replay", "--ref-action=print", "--onto", "main", "main..other"]] : []),
     ["rebase", "main", "task/l1-t1-cart"],
     ["-c", "rebase.updateRefs=true", "rebase", "--no-update-refs", "main"],
     ["reflog"],
@@ -451,9 +466,10 @@ test("a seat's git refuses every spelling that moves a ref other than its own br
     ["-c", "sequence.editor=true", "rebase", "-ix", "true", "main"],
     ["tag", "-a", "-m", "-df", "v9"],
     ["replace", "--format", "short"],
-    ["replay", "--ref-action", "print", "--onto", "main", "main..other"],
-    ["-c", "core.editor=true", "history", "reword", "--update-refs=head", "HEAD"],
+    ...(printsReplay ? [["replay", "--ref-action", "print", "--onto", "main", "main..other"]] : []),
+    ...(rewordsHead ? [["-c", "core.editor=true", "history", "reword", "--update-refs=head", "HEAD"]] : []),
     ["bisect", "start", "HEAD", "main"],
+    ["bisect", "run", "false"],
     ["bisect", "reset"],
   ];
   const failed = allowed.flatMap((args) => {
@@ -491,55 +507,46 @@ test("a seat's git refuses every spelling that moves a ref other than its own br
   assert.deepEqual(unseen, [], "nor does a refspec the repository's config holds move a local branch unseen");
 });
 
-test(
-  "a seat's git that cannot list a command's options refuses that command in a repository, saying which git it needs",
-  { skip: WIN && "a git of the test's own making is a script, and the shim on Windows starts only a git.exe" },
-  (t) => {
-    const found = executableIn(pathDirs(), "git")!;
-    const old = tempDir("sw2-shim-old-git-");
-    writeFileSync(
-      join(old, "git"),
-      `#!/bin/sh\ncase "$*" in *--git-completion-helper*) exit 129 ;; esac\nexec ${shQuoted(found)} "$@"\n`,
-      { mode: 0o755 },
-    );
-    const path = process.env.PATH;
-    t.after(() => {
-      process.env.PATH = path;
-    });
-    process.env.PATH = `${old}${delimiter}${path ?? ""}`;
-    const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-shim-old-git-state-"))!;
-    const root = tempDir("sw2-shim-old-git-repo-");
-    execFileSync("git", ["-C", root, "init", "-q", "-b", "main"]);
-    execFileSync("git", [
-      "-C",
-      root,
-      "-c",
-      "user.name=t",
-      "-c",
-      "user.email=t@x",
-      "commit",
-      "-q",
-      "--allow-empty",
-      "-m",
-      "seed",
-    ]);
-    execFileSync("git", ["-C", root, "branch", "other"]);
-    const git = (...args: string[]) => shimGit(dir, ["-C", root, ...args]);
+test("a seat's git that cannot list a command's options refuses that command in a repository, saying which git it needs", () => {
+  const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-shim-old-git-state-"))!;
+  const root = tempDir("sw2-shim-old-git-repo-");
+  execFileSync("git", ["-C", root, "init", "-q", "-b", "main"]);
+  execFileSync("git", [
+    "-C",
+    root,
+    "-c",
+    "user.name=t",
+    "-c",
+    "user.email=t@x",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "seed",
+  ]);
+  execFileSync("git", ["-C", root, "branch", "other"]);
+  // A value its command dies on stops the real git listing that command's options, as a git before 2.18 does, and on
+  // Windows too, where the shim starts only a git.exe and no git of the test's own making.
+  const unlisted = ["-c", "fetch.parallel=x", "-c", "rebase.autoSquash=maybe"];
+  const git = (where: string, ...args: string[]) => shimGit(dir, ["-C", where, ...unlisted, ...args]);
 
-    for (const args of [
-      ["fetch", "--forc", "origin"],
-      ["rebase", "--roo", "other"],
-    ])
-      assert.match(
-        git(...args).stderr,
-        /^git: refused: git could not list the options of git (fetch|rebase)[^\n]*git 2\.18 or newer/,
-        args.join(" "),
-      );
-    assert.equal(git("branch").status, 0, "a command given no long option has none to read");
-    assert.doesNotMatch(
-      shimGit(dir, ["-C", tempDir("sw2-shim-old-git-bare-"), "tag", "--list"]).stderr,
-      /^git: refused/,
-      "outside a repository there is no ref to move",
+  for (const args of [
+    ["fetch", "--forc", "origin"],
+    ["rebase", "--roo", "other"],
+  ])
+    assert.match(
+      git(root, ...args).stderr,
+      /^git: refused: git could not list the options of git (fetch|rebase)[^\n]*git 2\.18 or newer/,
+      args.join(" "),
     );
-  },
-);
+  assert.doesNotMatch(
+    git(root, "fetch", "origin").stderr,
+    /^git: refused/,
+    "a command given no long option has none to read, and is left to git",
+  );
+  assert.doesNotMatch(
+    git(tempDir("sw2-shim-old-git-bare-"), "fetch", "--forc", "origin").stderr,
+    /^git: refused/,
+    "outside a repository there is no ref to move",
+  );
+});
