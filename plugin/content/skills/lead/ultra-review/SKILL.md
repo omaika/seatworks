@@ -11,12 +11,12 @@ description: "Hunts bugs across one named scope with ten independent read-only h
 ## 1. Scope
 
 ```sh
-ocr delegate preview --format json --commit "$sha" > "$TMPDIR/ocr-preview.json"   # or --from BASE --to "$sha"
-ocr scan --preview --path PATH,PATH --format json > "$TMPDIR/ocr-preview.json"     # an area, no diff
-ocr delegate rule --format json $(jq -r '(.reviewable_files // [.files[] | select(.will_review)])[].path' "$TMPDIR/ocr-preview.json") > "$TMPDIR/ocr-rules.json"
+ocr delegate preview --format json --commit "$sha" > "SCRATCH/ocr-preview.json"   # or --from BASE --to "$sha"
+ocr scan --preview --path PATH,PATH --format json > "SCRATCH/ocr-preview.json"     # an area, no diff
+ocr delegate rule --format json $(jq -r '(.reviewable_files // [.files[] | select(.will_review)])[].path' "SCRATCH/ocr-preview.json") > "SCRATCH/ocr-rules.json"
 ```
 
-Skip the rule call when nothing is reviewable. `ocr` filters by file type, so an excluded file is not cleared; the hunt script keeps it in scope. Without `ocr` or `jq`, say so and run the scripts without the two JSON files.
+SCRATCH is your scratch directory. Skip the rule call when nothing is reviewable. `ocr` filters by file type, so an excluded file is not cleared; the hunt script keeps it in scope. Without `ocr` or `jq`, say so and run the scripts without the two JSON files.
 
 Keep the brief the hunters will be given — the scope, the change intent, the contracts that govern it and its directives `D01`, `D02`, ... — with `note` in ultra-review as `NAME-brief.md`, which puts it at `$SEATWORKS_STATE/ultra-review/NAME-brief.md` for the scripts. The report stamps its sha256, so a later round can tell which brief it reviewed. Without directives, write concerns `G01`, `G02`, ... from repository contracts, change intent, call paths, lifecycle, data flow and blast radius, and pass their number as `--concern-count` in place of `--directive-count`, so the hunters are given them.
 
@@ -26,7 +26,7 @@ Keep the brief the hunters will be given — the scope, the change intent, the c
 python3 "$SEATWORKS_KIT/content/skills/lead/ultra-review/scripts/create_ultra_review_report.py" \
   --workspace "$(git rev-parse --show-toplevel)" --report-dir "$SEATWORKS_STATE/ultra-review" \
   --review-name NAME --scope "SCOPE" --review-brief "$SEATWORKS_STATE/ultra-review/NAME-brief.md" --directive-count N \
-  --ocr-preview "$TMPDIR/ocr-preview.json" --ocr-rules "$TMPDIR/ocr-rules.json"
+  --ocr-preview "SCRATCH/ocr-preview.json" --ocr-rules "SCRATCH/ocr-rules.json"
 ```
 
 It writes this round's report beside earlier ones, with a coverage ledger, and prints the units (each rule group with its files and rule text, plus the excluded files) and each hunter's units and directives: two hunters per unit, three per directive. Give a risky unit a third hunter yourself.
@@ -45,7 +45,7 @@ End your turn. Share no candidate before consolidation, and restart only a hunte
 
 ```bash
 python3 "$SEATWORKS_KIT/content/skills/lead/ultra-review/scripts/review_pack.py" create --root "$(git rev-parse --show-toplevel)" \
-  --ocr-preview "$TMPDIR/ocr-preview.json" --ocr-rules "$TMPDIR/ocr-rules.json" \
+  --ocr-preview "SCRATCH/ocr-preview.json" --ocr-rules "SCRATCH/ocr-rules.json" \
   --include AGENTS.md --exclude-tests --task "BRIEF" --out "$SEATWORKS_STATE/ultra-review/NAME-review.md" --dry-run
 ```
 

@@ -1,5 +1,8 @@
 import type { Attention } from "../../../shared/views.ts";
 import type { FileKinds } from "../../core/git-diff.ts";
+import { home } from "../../core/paths.ts";
+import { globToRegex } from "../../core/scope.ts";
+import { unreadablePaths } from "../seat/refusals.ts";
 import type { Kit } from "./kit.ts";
 
 /** What a test file's change is read for: a skip marker it adds, or assertions it loses; global, since they are counted. */
@@ -41,6 +44,7 @@ export function watchPatterns(kit: Kit, attention: Attention) {
     scratch: new RegExp(attention.scratch),
     secretPath: new RegExp(attention.secretPath, "i"),
     secretExample: new RegExp(attention.secretExample, "i"),
+    unreadable: { home: home(), paths: unreadablePaths(kit, home()).map(globToRegex) },
     secretCommand: new RegExp(attention.secretCommand, "i"),
     secretString: new RegExp(attention.secretString),
     boundary: new RegExp(attention.boundary, "i"),

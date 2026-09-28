@@ -15,6 +15,7 @@ export type Rules = {
   scratch: RegExp;
   secretPath: RegExp;
   secretExample: RegExp;
+  unreadable: { home: string; paths: RegExp[] };
   secretCommand: RegExp;
   secretString: RegExp;
   boundary: RegExp;
@@ -48,9 +49,24 @@ export type Rules = {
   compactionsAt: number;
 };
 
-/** A path that holds a secret and is not an example of one. */
+/** A path that holds a secret and is not an example of one, or one a seat's file tools may not read. */
 export const secretFile = (path: string, rules: Rules) =>
-  rules.secretPath.test(path) && !rules.secretExample.test(path);
+  (rules.secretPath.test(path) && !rules.secretExample.test(path)) || unreadable(path, rules.unreadable);
+
+/** Home as sh, cmd and PowerShell spell it at the start of a path. */
+const HOME = /^(?:~|\$\{?HOME\}?|%USERPROFILE%|\$env:(?:USERPROFILE|HOME))(?=\/|$)/i;
+
+/** Whether `path`, under home however a shell spells it, is one the paths refused to a seat's file tools take in, as `~/…`. */
+function unreadable(path: string, { home, paths }: Rules["unreadable"]): boolean {
+  const slashed = path.replaceAll("\\", "/");
+  const own = home.replaceAll("\\", "/");
+  const rest = slashed.toLowerCase().startsWith(`${own.toLowerCase()}/`)
+    ? slashed.slice(own.length)
+    : HOME.test(slashed)
+      ? slashed.replace(HOME, "")
+      : undefined;
+  return rest !== undefined && paths.some((glob) => glob.test(`~${rest}`));
+}
 
 export const str = (value: unknown): string => (typeof value === "string" ? value : "");
 

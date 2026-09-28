@@ -79,13 +79,15 @@ export function writeRoleSettings(
   record: Recorder,
   catalog: Json,
 ): void {
-  const { file, source } = harness.settings;
+  const { file, source, platforms } = harness.settings;
   const roleFile = roleSettingsFile(kit, harness, role);
   if (!existsSync(roleFile)) throw new Error(`${role.role}: ${roleFile} is missing`);
+  const shipped = (path: string) => readConfigStrict<Json>(join(kit.dir, "harness", harness.id, path));
+  const onPlatform = platforms?.[process.platform as keyof typeof platforms];
   // Read strictly: a role's settings stood in as empty would seat it without its sandbox and its denials.
   const kitSettings = layered(
-    readConfigStrict<Json>(join(kit.dir, "harness", harness.id, source)),
-    readConfigStrict<Json>(roleFile),
+    layered(shipped(source), readConfigStrict<Json>(roleFile)),
+    onPlatform ? shipped(onPlatform) : {},
   ) as Json;
   const extra = layered(
     layered(catalog, stateWritesSetting(harness, role, seat.state, kitSettings)),

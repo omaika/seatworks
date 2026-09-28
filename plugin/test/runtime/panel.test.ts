@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { notice } from "./noticed.ts";
+import { marked, sandboxLine } from "../../client/format/flow.ts";
 import { contracts } from "../../shared/rpc.ts";
 import type { Layer } from "../../shared/settings.ts";
 import { settle } from "./fake-timeline.ts";
@@ -91,5 +92,30 @@ test("a save is refused only for what it adds", async () => {
   assert.deepEqual(
     [refused.status, refused.status === "invalid" && refused.error],
     ["invalid", "The project settings name an unknown role ghost"],
+  );
+});
+
+test("the Team tab marks every seat that runs with no OS sandbox, the Supervisor too, and a sandboxed seat reads as it did", async () => {
+  // Codex has a sandbox of its own on every platform the kit names, and pi on none.
+  const { h, sup, lane } = await laneWithPeer({ roles: { lead: { harness: "codex" }, peer: { harness: "pi" } } });
+  h.agents.get(sup)!.archivedAt = new Date().toISOString();
+  const boxed = h.add("sw2-supervisor-codex/gpt-5.5", h.root, "sup-codex");
+  const bare = h.add("sw2-supervisor-pi/glm-5", h.root, "sup-pi");
+  const flow = await h.rpc(contracts.flow, { project: h.project.slug, open: [lane.id] });
+  assert.ok("lanes" in flow);
+  const shown = flow.lanes.find((each) => each.id === lane.id)!;
+  const peer = shown.tasks[0]!.peer;
+  assert.deepEqual(
+    [shown.lead?.unsandboxed, peer?.unsandboxed],
+    [false, true],
+    "each seat as its own agent is, not as its role or its lane",
+  );
+  assert.equal(sandboxLine(shown.lead), null, "a sandboxed seat shows nothing new");
+  assert.equal(sandboxLine(peer), "Unsandboxed: its shell commands can read and write whatever your account can");
+  assert.ok(flow.supervisors.some((seat) => seat.id === boxed));
+  assert.deepEqual(
+    marked(flow.supervisors).map((seat) => [seat.id, sandboxLine(seat)]),
+    [[bare, "Unsandboxed: its shell commands can read and write whatever your account can"]],
+    "a Supervisor the tab names nowhere else shows only to be marked",
   );
 });

@@ -6,6 +6,7 @@
   "configDirEnv": "CODEX_HOME",
   "contextFile": "AGENTS.md",
   "skillsDir": "skills",
+  "sandboxedOn": ["darwin", "linux", "win32"],
   "timeline": {
     "pseudoCalls": [
       {
@@ -27,6 +28,9 @@
     "file": "config.toml",
     "source": "settings.toml",
     "roleSource": "settings/ROLE.settings.toml",
+    "platforms": {
+      "win32": "settings.win32.toml"
+    },
     "inherits": {
       "from": "HOME/.codex/config.toml",
       "keys": [

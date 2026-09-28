@@ -1,5 +1,5 @@
 import { can, roleNamed, seatOf } from "../../catalog/kit/roles.ts";
-import { type Quirks, exitOf, pseudo } from "../../catalog/kit/timeline.ts";
+import { type Quirks, detailOf, exitOf, pseudo } from "../../catalog/kit/timeline.ts";
 import { errorText } from "../../core/errors.ts";
 import type { StreamRow } from "../../core/ports.ts";
 import { sentBy } from "../../core/sent-by.ts";
@@ -49,7 +49,7 @@ function endOf(status: string, exit: number | undefined): string {
 
 /** What a call was, without its output: the command, path or query, and how it ended. */
 function callLine(item: Record<string, unknown>, quirks: Quirks): string {
-  const detail = (item.detail ?? {}) as Record<string, unknown>;
+  const detail = detailOf(item, quirks);
   const how = endOf(
     str(item.status),
     typeof detail.exitCode === "number" ? detail.exitCode : exitOf(item, quirks.exitField),

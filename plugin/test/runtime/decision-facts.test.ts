@@ -49,6 +49,22 @@ test("an accept after reading the change, or with no hand-back letter in the rec
   assert.deepEqual(opened(other.h), []);
 });
 
+test("a claude Lead that looked through PowerShell before its accept looked", async () => {
+  const { h, lane, peer } = await laneWithPeer();
+  const lead = lane.lead!;
+  const stream = h.timelineOf(lead);
+  h.commit(h.ledger().tasks["L1-T1"]!.worktree!, "a.txt", "done\n");
+  await h.call(peer, "peer", "done", { outcome: "complete", summary: "done" });
+  stream.add({ type: "user_message", text: "HANDBACK L1-T1 (Clean build) from agent" }, "l1");
+  // As Paseo 0.9.2 gives a claude PowerShell call: an unknown detail holding the tool's own input.
+  const detail = { type: "unknown", input: { command: "git diff main", description: "diff" }, output: null };
+  stream.add({ type: "tool_call", callId: "p", name: "PowerShell", status: "completed", detail }, "l1");
+  const accepted = await h.call(lead, "lead", "accept", { task: "L1-T1" });
+  assert.equal(accepted.ok, true, accepted.text);
+  await h.runtime.desk.settled(h.project);
+  assert.deepEqual(opened(h), []);
+});
+
 test("a sending-back on a review that ran nothing, and a review's accept with nothing run, are evidence", async () => {
   const { h, lane, peer } = await laneWithPeer();
   const lead = lane.lead!;
@@ -69,6 +85,20 @@ test("a sending-back on a review that ran nothing, and a review's accept with no
     ["rework-unrun", "L1-T1 was sent back on L1-R1, a review that ran nothing"],
     ["review-unchecked", "L1-R2 accepted with 1 changed file unread: a.txt"],
   ]);
+});
+
+test("a claude review whose commands ran through PowerShell ran them: its whole diff shown is every changed file read", async () => {
+  const { h, lane, peer } = await laneWithPeer();
+  h.commit(h.ledger().tasks["L1-T1"]!.worktree!, "a.txt", "done\n");
+  await h.call(peer, "peer", "done", { outcome: "complete", summary: "done" });
+  await h.call(lane.lead!, "lead", "start_review", { task: "L1-T1", focus: "Is it right?" });
+  const reviewer = h.ledger().tasks["L1-R1"]!.peer!;
+  // As Paseo 0.9.2 gives a claude PowerShell call: an unknown detail holding the tool's own input.
+  const detail = { type: "unknown", input: { command: "git diff main", description: "diff" }, output: null };
+  h.timelineOf(reviewer).add({ type: "tool_call", callId: "p", name: "PowerShell", status: "completed", detail }, "r1");
+  await h.call(reviewer, "reviewer", "done", { verdict: "accept", answer: "Right.", ran: ["git diff main"] });
+  await h.runtime.desk.settled(h.project);
+  assert.deepEqual(opened(h), []);
 });
 
 test("a long lane reported ready with nobody asking anything, over a gate growing slower, and a brief with a pasted history, are evidence", async () => {

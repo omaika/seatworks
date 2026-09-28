@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { tempDir } from "../tempdir.ts";
@@ -121,4 +121,30 @@ writeFileSync(${JSON.stringify(launched)}, \`\${process.env[${JSON.stringify(con
         what,
       );
   }
+});
+
+test("a seat's agent named bare, as its harness names it, is found on the seat's PATH and gets its arguments as they were given", async () => {
+  const dir = tempDir("sw2-seat-room-bare-");
+  const launched = join(dir, "launched");
+  fakeBin(
+    dir,
+    "agent",
+    `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(launched)}, JSON.stringify(process.argv.slice(2)));`,
+  );
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== "PATH"));
+  const args = ["-p", "two words", 'say "hi"'];
+  const ran = await open(
+    {
+      ...(env as Record<string, string>),
+      PATH: `${dir}${delimiter}${process.env.PATH}`,
+      SEATWORKS_KIT: acme,
+      SEATWORKS_HARNESS: "acme",
+      SEATWORKS_AGENT_BIN: "agent",
+      ACME_HOME: "/seats/acme-peer",
+    },
+    args,
+  );
+  assert.equal(ran.code, 0, ran.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(launched, "utf-8")), args);
 });

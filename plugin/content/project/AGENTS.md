@@ -22,9 +22,11 @@ server, skip it.
 - To wait for an answer or a result, end your turn: mail starts your next one, and polling or sleeping only burns it.
 - Stay in the working copy and on the branch you were given. Switching branches, adding worktrees of this repository,
   forcing, deleting or renaming its branches, merging into the lane and pushing are the desk's, and git refuses them; a
-  clone of your own in `$TMPDIR` is yours. A refusal is an answer: say what you need instead of working around it.
-- Scratch files go in `$TMPDIR`, never in a working copy whose commits you hand back: a stray file there stops a
-  merge.
+  clone of your own in your scratch directory is yours. A refusal is an answer: say what you need instead of working
+  around it.
+- Scratch files go in your scratch directory, never in a working copy whose commits you hand back: a stray file there
+  stops a merge. It is `$TMPDIR` in a POSIX shell or Git Bash; on Windows the same directory is `$env:TEMP` in
+  PowerShell and `%TEMP%` in cmd, where `$TMPDIR` names nothing.
 - Claim only what a tool result in this session shows: each check you report is a command you ran, with what it
   printed. A check you did not run did not pass. A measurement (a speed, a memory size, a throughput) is evidence only
   beside its conditions: read the machine's real load rather than anyone's word that it is quiet, and compare only

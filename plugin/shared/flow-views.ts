@@ -2,10 +2,14 @@
 import { z } from "zod";
 import { Refused } from "./views.ts";
 
-/** `label` is the seat's role as the kit labels it; none when neither Paseo nor the ledger says which role it has. */
+/**
+ * `label` is the seat's role as the kit labels it; none when neither Paseo nor the ledger says which role it has.
+ * `unsandboxed`: its agent has no OS sandbox on the platform it runs on, as the kit's harness says.
+ */
 const FlowSeat = z.object({
   id: z.string(),
   label: z.string().nullable(),
+  unsandboxed: z.boolean(),
   status: z.string(),
   minutes: z.number(),
   waiting: z.array(z.string()),

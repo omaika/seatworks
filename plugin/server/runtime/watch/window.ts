@@ -1,4 +1,4 @@
-import { type Quirks, exitOf, pseudo } from "../../catalog/kit/timeline.ts";
+import { type Quirks, detailOf, exitOf, pseudo } from "../../catalog/kit/timeline.ts";
 import type { StreamRow } from "../../core/ports.ts";
 import { sentBy } from "../../core/sent-by.ts";
 
@@ -116,7 +116,7 @@ export class Window {
     const item = row.item;
     const id = text(item.callId) || `seq-${row.seq}`;
     const status = text(item.status) || "running";
-    const given = (item.detail && typeof item.detail === "object" ? item.detail : {}) as Detail;
+    const given = detailOf(item, this.quirks) as Detail;
     const exit = typeof given.exitCode === "number" ? undefined : exitOf(item, this.quirks.exitField);
     const detail = exit === undefined ? given : { ...given, exitCode: exit };
     const seen = this.calls.get(id);

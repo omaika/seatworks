@@ -131,6 +131,12 @@ test("every role builds on every agent the kit ships, each in that agent's own t
         `${where}: the watch reads a seat's thinking, which Claude run headless empties unless its launch asks for a summary; its settings' showThinkingSummaries counts only in an interactive session`,
       );
       const deny = list(at(settings, "permissions.deny"));
+      const shellRules = deny.filter((rule) => /^Bash(\(|$)/.test(rule));
+      assert.deepEqual(
+        shellRules.filter((rule) => !deny.includes(rule.replace(/^Bash/, "PowerShell"))),
+        [],
+        `${where}: what its Bash may not run, its PowerShell, the shell Claude runs commands in on Windows, may not either; with no Bash, it has no PowerShell`,
+      );
       for (const command of refusedGit)
         assert.ok(
           [`Bash(git ${command} *)`, `Bash(git -C * ${command} *)`].every((rule) => deny.includes(rule)),

@@ -109,9 +109,16 @@ export function projectImports(harness: HarnessSpec, root: string | undefined): 
 
 const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/** `env` with `name` under that spelling alone: Windows reads a variable's name in any case, and a spread keeps each. */
+function setAlone(env: Record<string, string>, name: string, value: string): void {
+  for (const key of Object.keys(env)) if (key !== name && key.toUpperCase() === name) delete env[key];
+  env[name] = value;
+}
+
 /**
  * The harness's own env too, as Paseo may run one agent server for every seat of a harness; TMPDIR, where every seat is told
- * its scratch files go, is always set, as Linux services and Windows often have none. `shim` goes first on the PATH.
+ * its scratch files go, is always set, as Linux services and Windows often have none, and on Windows TEMP and TMP, which
+ * its tools and shells read there, name it too. `shim` goes first on the PATH Paseo gave the seat.
  */
 export function seatEnv(
   kit: Kit,
@@ -122,21 +129,24 @@ export function seatEnv(
 ): SessionOpen {
   const seat = seatOf(kit, request.provider);
   if (!seat) return request;
-  return {
-    ...request,
-    env: {
-      ...request.env,
-      ...seat.harness.provider.env,
-      [seat.harness.configDirEnv]: seatPath,
-      ...(seat.harness.settings.overlayEnv
-        ? { [seat.harness.settings.overlayEnv]: join(seatPath, seat.harness.settings.file) }
-        : {}),
-      TMPDIR: request.env.TMPDIR ?? tmpdir(),
-      SEATWORKS_ROLE: seat.role.role,
-      SEATWORKS_KIT: kit.dir,
-      SEATWORKS_PROJECT: project.root,
-      SEATWORKS_STATE: project.state,
-      ...(shim ? { PATH: [shim, request.env.PATH ?? process.env.PATH].filter(Boolean).join(delimiter) } : {}),
-    },
+  const scratch = request.env.TMPDIR ?? tmpdir();
+  const env: Record<string, string> = {
+    ...request.env,
+    ...seat.harness.provider.env,
+    [seat.harness.configDirEnv]: seatPath,
+    ...(seat.harness.settings.overlayEnv
+      ? { [seat.harness.settings.overlayEnv]: join(seatPath, seat.harness.settings.file) }
+      : {}),
+    TMPDIR: scratch,
+    SEATWORKS_ROLE: seat.role.role,
+    SEATWORKS_KIT: kit.dir,
+    SEATWORKS_PROJECT: project.root,
+    SEATWORKS_STATE: project.state,
   };
+  if (process.platform === "win32") for (const name of ["TEMP", "TMP"]) setAlone(env, name, scratch);
+  if (shim) {
+    const given = Object.entries(request.env).find(([key]) => key.toUpperCase() === "PATH")?.[1];
+    setAlone(env, "PATH", [shim, given ?? process.env.PATH].filter(Boolean).join(delimiter));
+  }
+  return { ...request, env };
 }

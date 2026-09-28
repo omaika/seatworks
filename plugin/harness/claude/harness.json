@@ -5,7 +5,12 @@
   "profileRoot": "HOME/.claude/profiles",
   "configDirEnv": "CLAUDE_CONFIG_DIR",
   "skillsDir": "skills",
+  "sandboxedOn": ["darwin", "linux"],
   "timeline": {
+    "shells": {
+      "PowerShell": "input.command",
+      "Monitor": "input.command"
+    },
     "unparsed": {
       "input": "__unparsedToolInput",
       "error": "InputValidationError[^\"]*could not be parsed as JSON"
@@ -41,7 +46,10 @@
   "settings": {
     "file": "settings.json",
     "source": "settings.json",
-    "roleSource": "settings/ROLE.settings.json"
+    "roleSource": "settings/ROLE.settings.json",
+    "platforms": {
+      "win32": "settings.win32.json"
+    }
   },
   "login": {
     "run": ["auth", "status"],
@@ -98,7 +106,9 @@
       "at": "permissions.deny",
       "as": [
         "Bash({command})",
-        "Bash({command} *)"
+        "Bash({command} *)",
+        "PowerShell({command})",
+        "PowerShell({command} *)"
       ]
     },
     "edits": {

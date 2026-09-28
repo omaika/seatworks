@@ -3,12 +3,12 @@ import "../setup.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { test } from "node:test";
+import { type TestContext, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { renderPrompt, renderText, skillProblems, skillSources } from "../../server/catalog/kit/content.ts";
 import { loadKit } from "../../server/catalog/kit/kit.ts";
 import { providerId, toolsOf } from "../../server/catalog/kit/roles.ts";
-import { applyRole } from "../../server/catalog/seat/launch.ts";
+import { applyRole, seatEnv } from "../../server/catalog/seat/launch.ts";
 import { desiredProvider, seatPairs } from "../../server/catalog/paseo/providers.ts";
 import { seedRecords } from "../../server/catalog/seat/seat-files.ts";
 import { materialize, seatDir } from "../../server/catalog/seat/seats.ts";
@@ -16,7 +16,8 @@ import { placeGuides } from "../../server/catalog/seat/snapshots.ts";
 import { choicesFor, serversFor } from "../../server/catalog/seat/servers.ts";
 import { resolveTeam, rulesFor, withHarness } from "../../server/catalog/team/team.ts";
 import { describeTeam } from "../../server/runtime/panel/team-view.ts";
-import { readConfig } from "../../server/core/config-file.ts";
+import { readConfig, readConfigStrict } from "../../server/core/config-file.ts";
+import { type Json, layered } from "../../server/core/json.ts";
 import { git } from "../../server/core/git.ts";
 import { guidesDir } from "../../server/core/paths.ts";
 import type { AgentConfig } from "../../server/core/ports.ts";
@@ -86,6 +87,87 @@ test("the shipped kit resolves to a complete team, and every role's seat builds 
     }
   }
 });
+
+const REAL_PLATFORM = process.platform;
+
+/** The daemon's platform taken as `platform` for the rest of the test; after it, the host's own, however many it took. */
+function onPlatform(t: TestContext, platform: NodeJS.Platform): void {
+  t.after(() => Object.defineProperty(process, "platform", { value: REAL_PLATFORM, configurable: true }));
+  Object.defineProperty(process, "platform", { value: platform, configurable: true });
+}
+
+type Sandbox = { enabled?: boolean; failIfUnavailable?: boolean; allowUnsandboxedCommands?: boolean };
+type SeatSettings = {
+  sandbox?: Sandbox;
+  sandbox_mode?: string;
+  default_permissions?: string;
+  permissions?: Record<string, unknown>;
+  windows?: { sandbox?: string };
+};
+
+/** Every role built on Claude and on Codex as a seat starts: its folder, its launch config and env, and its settings as they reach it. */
+function seatsOnEveryRole(home: string): { name: string; harness: string; settings: SeatSettings }[] {
+  const kit = loadKit(PLUGIN);
+  return kit.roles.flatMap((role) =>
+    ["claude", "codex"].map((id) => {
+      const harness = kit.harnesses[id]!;
+      const team = withHarness(resolveTeam(kit), role.role, harness);
+      const servers = serversFor(kit, team, role.role, context);
+      materialize(kit, team, role.role, home, project, servers);
+      const dir = seatDir(kit, role, harness, home, project);
+      const provider = providerId(kit, role.role, id);
+      const config = applyRole(kit, team, { provider, cwd: project.root }, () => "PROMPT", project.state, servers);
+      const request = { agentId: "a", reason: "create" as const, provider, cwd: project.root, env: {} };
+      const env = seatEnv(kit, request, dir, project).env;
+      const name = `the ${role.role} on ${id}`;
+      assert.ok(config.systemPrompt, `${name} starts with its prompt`);
+      assert.equal(env[harness.configDirEnv], dir, `${name} reads its settings from the folder built for it`);
+      const file = readConfigStrict<Json>(join(dir, harness.settings.file));
+      const launched = (config.providerOptions as { settings?: Json } | undefined)?.settings;
+      return { name, harness: id, settings: layered(file, launched) as SeatSettings };
+    }),
+  );
+}
+
+test("on Windows every role seats on Claude and on Codex: Codex in the sandbox it has there, Claude, which has none, unsandboxed rather than stopped", (t) => {
+  onPlatform(t, "win32");
+  const kit = loadKit(PLUGIN);
+  assert.equal(kit.harnesses.claude!.sandboxedOn?.includes("win32"), false, "Claude has no sandbox on native Windows");
+  assert.equal(kit.harnesses.codex!.sandboxedOn?.includes("win32"), true, "Codex has one of its own there");
+  for (const { name, harness, settings } of seatsOnEveryRole(tempDir("sw2-win-seats-")))
+    if (harness === "claude") {
+      assert.equal(settings.sandbox?.enabled, false, `${name} runs its commands unsandboxed`);
+      assert.equal(settings.sandbox.failIfUnavailable, false, `${name} starts where no sandbox can`);
+    } else {
+      assert.equal(settings.windows?.sandbox, "unelevated", `${name} asks for the sandbox no administrator sets up`);
+      const profile = settings.default_permissions;
+      assert.ok(
+        ["workspace-write", "read-only"].includes(settings.sandbox_mode ?? "") ||
+          (profile !== undefined && settings.permissions?.[profile] !== undefined),
+        `${name} keeps its sandbox`,
+      );
+    }
+});
+
+test(
+  "on macOS and Linux a Claude seat still refuses to start without its sandbox, and a Codex seat takes nothing meant for Windows",
+  // Taken as macOS, a real Windows host would be asked for symlinks its ordinary account may not make.
+  { skip: process.platform === "win32" && "a POSIX seat build needs POSIX links" },
+  (t) => {
+    for (const platform of ["darwin", "linux"] as const) {
+      onPlatform(t, platform);
+      for (const { name, harness, settings } of seatsOnEveryRole(tempDir(`sw2-${platform}-seats-`)))
+        if (harness === "claude") {
+          const { enabled, failIfUnavailable, allowUnsandboxedCommands } = settings.sandbox ?? {};
+          assert.deepEqual(
+            { enabled, failIfUnavailable, allowUnsandboxedCommands },
+            { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false },
+            `${name} on ${platform}`,
+          );
+        } else assert.equal(settings.windows, undefined, `${name} on ${platform}`);
+    }
+  },
+);
 
 test("nothing a seat or its guides lead it to read resolves into a git repository", async () => {
   const kit = loadKit(PLUGIN);

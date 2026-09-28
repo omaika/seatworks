@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { can } from "../../catalog/kit/roles.ts";
+import { can, seatOf } from "../../catalog/kit/roles.ts";
+import { detailOf } from "../../catalog/kit/timeline.ts";
 import { fileKinds } from "../../catalog/kit/ecosystem-patterns.ts";
 import { diffCounts } from "../../core/git-diff.ts";
 import type { StreamRow } from "../../core/ports.ts";
@@ -63,12 +64,28 @@ async function factsAt(
 
 const letterOf = (row: StreamRow) => (row.item.type === "user_message" ? said(row.item.text) : "");
 
-/** The seat's calls since the last letter that hands back `ids`: none found, the record cannot say, so nothing is read into it. */
-async function callsSince(services: Deciding, seat: string, ids: string[]): Promise<StreamRow[] | undefined> {
-  const rows = await services.roster.history(seat, HISTORY).catch(() => []);
+type Detail = Record<string, unknown> | undefined;
+
+/** The seat's history, each call's detail read as its harness writes it: a shell Paseo leaves unread is a shell. */
+async function historyOf(services: Deciding, seat: string): Promise<{ rows: StreamRow[]; details: Detail[] }> {
+  const [rows, look] = await Promise.all([
+    services.roster.history(seat, HISTORY).catch(() => []),
+    services.roster.look(seat).catch(() => undefined),
+  ]);
+  const quirks = (look && seatOf(services.kit, look.provider)?.harness.timeline) ?? {};
+  return { rows, details: rows.map((row) => (row.item.type === "tool_call" ? detailOf(row.item, quirks) : undefined)) };
+}
+
+/** The details of the seat's calls since the last letter that hands back `ids`: none found, the record cannot say, so nothing is read into it. */
+async function callsSince(
+  services: Deciding,
+  seat: string,
+  ids: string[],
+): Promise<Record<string, unknown>[] | undefined> {
+  const { rows, details } = await historyOf(services, seat);
   const from = rows.findLastIndex((row) => ids.some((id) => letterOf(row).includes(`HANDBACK ${id} (`)));
   if (from < 0) return undefined;
-  return rows.slice(from + 1).filter((row) => row.item.type === "tool_call");
+  return details.slice(from + 1).filter((detail) => detail !== undefined);
 }
 
 const LOOKS = new Set(["read", "search", "shell"]);
@@ -84,7 +101,7 @@ async function accepted(
   const facts: Fact[] = [];
   const reviews = Object.values(ledger.tasks).filter((entry) => entry.kind === "review" && entry.of === task.id);
   const calls = await callsSince(services, lead, [task.id, ...reviews.map((review) => review.id)]);
-  const looked = calls?.some((row) => LOOKS.has(said((row.item.detail as Record<string, unknown> | undefined)?.type)));
+  const looked = calls?.some((detail) => LOOKS.has(said(detail.type)));
   if (calls && !looked)
     facts.push(
       fact(
@@ -171,10 +188,7 @@ function briefsPasted(args: Record<string, unknown>, limit: number): Fact[] {
 
 /** A review's accept with no command run, or with files its change touched never read, as the reviewer's own calls show. */
 async function reviewUnchecked(services: Deciding, reviewer: string, ledger: Ledger, review: Task): Promise<Fact[]> {
-  const rows = await services.roster.history(reviewer, HISTORY).catch(() => []);
-  const details = rows
-    .filter((row) => row.item.type === "tool_call")
-    .map((row) => (row.item.detail ?? {}) as Record<string, unknown>);
+  const details = (await historyOf(services, reviewer)).details.filter((detail) => detail !== undefined);
   const commands = details.filter((detail) => detail.type === "shell").map((detail) => said(detail.command));
   const read = details.map((detail) => said(detail.filePath)).filter(Boolean);
   const target = review.of ? ledger.tasks[review.of] : undefined;

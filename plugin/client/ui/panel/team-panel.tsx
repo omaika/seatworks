@@ -3,9 +3,9 @@ import type { PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { ScrollView } from "@getpaseo/plugin/client/react-native";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import type { FlowLane, FlowTask, FlowView } from "../../../shared/flow-views.ts";
+import type { FlowLane, FlowSeat, FlowTask, FlowView } from "../../../shared/flow-views.ts";
 import type { CatalogView } from "../../../shared/views.ts";
-import { type Answers, laneLine, seatLine, seatName, taskLine } from "../../format/flow.ts";
+import { type Answers, laneLine, marked, sandboxLine, seatLine, seatName, taskLine } from "../../format/flow.ts";
 import type { Tone } from "../../format/tone.ts";
 import { caseLines, incidentLines, judgeWords } from "../../format/watch.ts";
 import { useFlow } from "../../state/flow.ts";
@@ -21,17 +21,17 @@ type Navigation = PluginWorkspacePanelProps["navigation"];
 const roleLabel = (catalog: CatalogView, can: string, fallback: string) =>
   catalog.roles.find((role) => role.can.includes(can))?.label ?? fallback;
 
-/** One seat under its lane: a dot, who, what it does; pressing it opens its chat where the host can. */
+/** One seat under its lane: a dot, who, what it does, and a line when no OS sandbox holds it; pressing it opens its chat. */
 function SeatLine({
   who,
   line,
-  agentId,
+  seat,
   navigation,
   theme,
 }: {
   who: string;
   line: { tone: Tone; text: string };
-  agentId: string | null;
+  seat: FlowSeat | null;
   navigation: Navigation;
   theme: PluginTheme;
 }) {
@@ -39,24 +39,34 @@ function SeatLine({
     row: { flexDirection: "row" as const, alignItems: "center" as const, gap: SPACE.sm, paddingVertical: 5 },
     who: { flex: 1, fontSize: FONT.small, color: colors.foreground },
     what: { fontSize: FONT.small, color: colors.foregroundMuted },
+    note: { fontSize: FONT.small, color: colors.foregroundMuted, paddingLeft: 14 },
   }));
+  const agentId = seat?.id;
   const open = agentId && navigation ? () => navigation.openAgent({ agentId }) : undefined;
+  const sandbox = sandboxLine(seat);
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${who}: ${line.text}`}
-      disabled={!open}
-      onPress={open}
-      style={({ pressed }) => [styles.row, pressState(false, pressed && Boolean(open))]}
-    >
-      <Dot tone={line.tone} theme={theme} size={6} />
-      <Text style={styles.who} numberOfLines={1}>
-        {who}
-      </Text>
-      <Text style={[styles.what, { color: line.tone === "done" ? toneColor(theme, "done") : undefined }]}>
-        {line.text}
-      </Text>
-    </Pressable>
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${who}: ${line.text}`}
+        disabled={!open}
+        onPress={open}
+        style={({ pressed }) => [styles.row, pressState(false, pressed && Boolean(open))]}
+      >
+        <Dot tone={line.tone} theme={theme} size={6} />
+        <Text style={styles.who} numberOfLines={1}>
+          {who}
+        </Text>
+        <Text style={[styles.what, { color: line.tone === "done" ? toneColor(theme, "done") : undefined }]}>
+          {line.text}
+        </Text>
+      </Pressable>
+      {sandbox ? (
+        <Text style={styles.note} numberOfLines={2}>
+          {sandbox}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -102,7 +112,7 @@ function laneItem(
         <SeatLine
           who={seatName(lane.lead)}
           line={seatLine(lane.lead, answers)}
-          agentId={lane.lead?.id ?? null}
+          seat={lane.lead}
           navigation={navigation}
           theme={theme}
         />
@@ -111,12 +121,22 @@ function laneItem(
             <SeatLine
               who={`${task.peer ? seatName(task.peer) : task.kind} ${task.id}`}
               line={taskLine(task, answers)}
-              agentId={task.peer?.id ?? null}
+              seat={task.peer}
               navigation={navigation}
               theme={theme}
             />
             <BriefLines brief={task.brief} theme={theme} />
           </View>
+        ))}
+        {marked(lane.kept).map((seat) => (
+          <SeatLine
+            key={seat.id}
+            who={`${seatName(seat)} ${seat.task}`}
+            line={seatLine(seat, answers)}
+            seat={seat}
+            navigation={navigation}
+            theme={theme}
+          />
         ))}
       </View>
     ),
@@ -170,6 +190,16 @@ function TeamList({
   return (
     <View style={{ gap: 10 }}>
       <Text style={styles.head}>{`${slug} · ${working.length} line${working.length === 1 ? "" : "s"}`}</Text>
+      {marked(flow.supervisors).map((seat) => (
+        <SeatLine
+          key={seat.id}
+          who={seatName(seat)}
+          line={seatLine(seat, answers)}
+          seat={seat}
+          navigation={navigation}
+          theme={theme}
+        />
+      ))}
       {items.length > 0 ? (
         <DisclosureList items={items} open={open} theme={theme} compact onOpen={setOpen} />
       ) : (

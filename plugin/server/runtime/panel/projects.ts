@@ -173,10 +173,14 @@ export class ProjectsPanel implements ProjectsRpc {
       this.deps.kit.roles.map((role) => [role.role, { label: role.label, supervises: can(role, "supervise") }]),
     );
     const seated = [...seats.values()]
-      .map((seat) => ({ seat, role: seatOf(this.deps.kit, seat.provider)?.role }))
-      .filter(({ seat, role }) => role && Boolean(seat.cwd) && projectOf(seat.cwd).slug === project.slug)
+      .map((seat) => ({ seat, as: seatOf(this.deps.kit, seat.provider) }))
+      .filter(({ seat, as }) => as && Boolean(seat.cwd) && projectOf(seat.cwd).slug === project.slug)
       .sort((a, b) => Date.parse(b.seat.updatedAt) - Date.parse(a.seat.updatedAt))
-      .map(({ seat, role }) => ({ id: seat.id, role: role!.role }));
+      .map(({ seat, as }) => ({
+        id: seat.id,
+        role: as!.role.role,
+        unsandboxed: !as!.harness.sandboxedOn?.some((platform) => platform === process.platform),
+      }));
     const view = flowView(project, readLedger(project.state), seats, Date.now(), new Set(open ?? []), roles, seated);
     // Live state, but part of the revision, or the card freezes whenever the ledger does not change.
     const watch = this.deps.watch(project, seats.values());

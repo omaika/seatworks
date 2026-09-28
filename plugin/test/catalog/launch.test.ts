@@ -293,6 +293,7 @@ test("a seat's session gets its harness's environment, its config directory, pro
       KEEP: "1",
       PATH: `/state/bin${delimiter}/usr/bin`,
       TMPDIR: "/scratch",
+      ...(process.platform === "win32" ? { TEMP: "/scratch", TMP: "/scratch" } : {}),
       SEATWORKS_HARNESS: "omp",
       SEATWORKS_AGENT_BIN: "omp",
       PI_CODING_AGENT_DIR: "/seats/peer-omp-repo",
@@ -301,8 +302,27 @@ test("a seat's session gets its harness's environment, its config directory, pro
       SEATWORKS_PROJECT: "/repo",
       SEATWORKS_STATE: "/state/repo",
     },
-    "Paseo may run one agent server for every seat of a harness, so only the session carries the seat's own environment",
+    "Paseo may run one agent server for every seat of a harness, so only the session carries the seat's own environment; on Windows the scratch folder goes by the names its own tools read there too",
   );
+  const windows = seatEnv(
+    kit,
+    { ...request, env: { Path: "C:\\Windows", TEMP: "C:\\Temp", Tmp: "C:\\Temp", TMPDIR: "/scratch" } },
+    "/seats/peer-omp-repo",
+    { root: "/repo", state: "/state/repo" },
+    "/state/bin",
+  );
+  const spelled = (name: string) => Object.keys(windows.env).filter((key) => key.toUpperCase() === name);
+  assert.deepEqual(
+    [spelled("PATH"), windows.env.PATH],
+    [["PATH"], `/state/bin${delimiter}C:\\Windows`],
+    "Windows spells it Path, and the seat's shells find the shim first on the PATH Paseo gave it, under one name alone",
+  );
+  if (process.platform === "win32")
+    assert.deepEqual(
+      [spelled("TEMP"), spelled("TMP"), windows.env.TEMP, windows.env.TMP],
+      [["TEMP"], ["TMP"], "/scratch", "/scratch"],
+      "every name Windows reads for a scratch folder names the one the seat is told to use",
+    );
   const had = process.env.TMPDIR;
   delete process.env.TMPDIR;
   t.after(() => (had === undefined ? delete process.env.TMPDIR : (process.env.TMPDIR = had)));

@@ -49,7 +49,8 @@ hand back what is true.
   on the same workload under the same conditions; and put the conditions beside the numbers in `done`.
 - Prove each acceptance behavior with one focused check where a user sees it; `AGENTS.md` says what else to test. A
   test names only what exists at base or in the brief, and passes the `test-first` anti-pattern table.
-- Commit on your branch with a short subject; a longer message goes in `$TMPDIR` (`git commit -F "$TMPDIR/msg"`).
+- Commit on your branch with a short subject; a longer message goes in a file in your scratch directory
+  (`git commit -F <file>`).
 
 ## Handing back
 

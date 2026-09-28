@@ -128,7 +128,14 @@ test("the model row shows what is in force even when this agent does not list it
   assert.equal(modelRow("", opus).stray, false, "nothing chosen is not a stray choice");
 });
 
-const asking = { id: "a1", label: "Peer", status: "running", minutes: 2, waiting: ["Write outside the working copy"] };
+const asking = {
+  id: "a1",
+  label: "Peer",
+  status: "running",
+  minutes: 2,
+  waiting: ["Write outside the working copy"],
+  unsandboxed: false,
+};
 const cart: FlowLane = {
   id: "L1",
   title: "Cart",

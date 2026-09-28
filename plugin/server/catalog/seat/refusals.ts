@@ -1,6 +1,7 @@
 import { join, relative, sep } from "node:path";
 import { DESK_OWNED, RECORDS, stateRoot } from "../../core/paths.ts";
-import { type Json, isRecord, layered, setPath } from "../../core/json.ts";
+import { readConfigStrict } from "../../core/config-file.ts";
+import { type Json, getPath, isRecord, layered, setPath } from "../../core/json.ts";
 import type { HarnessSpec, Kit, RoleSpec } from "../kit/kit.ts";
 
 const MACHINE_OWNED = [
@@ -62,12 +63,40 @@ function keptPaths(kit: Kit, role: RoleSpec, homeDir: string): { edits: string[]
       ...[...DESK_OWNED, ...pages].map((name) => within(project, name)),
       ...RECORDS.map((name) => join(project, `${name}.*.log*`)),
     ],
-    // The whole name too, which every sandbox keeps, beside the glob that takes in staged copies and backups.
-    reads: [...KEYED.map((name) => join(root, name)), join(project, "settings.json")].flatMap((path) => [
-      path,
-      `${path}*`,
-    ]),
+    reads: keyedPaths(homeDir),
   };
+}
+
+/** The desk's files that hold keys: the whole name too, which every sandbox keeps, beside the glob that takes in staged copies and backups. */
+function keyedPaths(homeDir: string): string[] {
+  const root = stateRoot(homeDir);
+  return [...KEYED.map((name) => join(root, name)), join(root, "projects", "*", "settings.json")].flatMap((path) => [
+    path,
+    `${path}*`,
+  ]);
+}
+
+/** The paths a harness's shipped settings refuse its file tools to read, read back through its own form for a refused read. */
+function refusedIn(kit: Kit, harness: HarnessSpec, refusal: { at: string; as: unknown }): string[] {
+  const forms = (Array.isArray(refusal.as) ? refusal.as : [])
+    .filter((form): form is string => typeof form === "string" && form.includes("{path}"))
+    .map((form) => new RegExp(`^${form.split("{path}").map(escaped).join("(.+)")}$`));
+  const settings = readConfigStrict<Json>(join(kit.dir, "harness", harness.id, harness.settings.source));
+  const listed = getPath(settings, refusal.at.split("."));
+  return (Array.isArray(listed) ? listed : []).flatMap((entry) => {
+    const path = forms.map((form) => form.exec(String(entry))?.[1]).find(Boolean);
+    return path ? [path] : [];
+  });
+}
+
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Every path a seat's file tools may not read, whatever its role and agent, as `~/` paths: the desk's keyed files, and each harness's own. */
+export function unreadablePaths(kit: Kit, homeDir: string): string[] {
+  const own = Object.values(kit.harnesses).flatMap((harness) =>
+    harness.refuses?.reads ? refusedIn(kit, harness, harness.refuses.reads) : [],
+  );
+  return [...new Set([...keyedPaths(homeDir).map((path) => fromHome(path, homeDir)), ...own])];
 }
 
 /** A path under the home folder as agents' rules write one, which holds on every platform. */

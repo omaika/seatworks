@@ -28,6 +28,7 @@ const shimGit = (dir: string, args: string[], options: { cwd?: string; env?: Nod
 
 const shQuoted = (arg: string) => `'${arg.replaceAll("'", `'\\''`)}'`;
 const cmdQuoted = (arg: string) => (/[\s&|<>^"]/.test(arg) ? `"${arg.replaceAll('"', '""')}"` : arg);
+const psQuoted = (arg: string) => `'${arg.replaceAll("'", "''")}'`;
 
 /** PATH with `dir` first, under the one spelling: Windows would read either of two keys, and a spread would leave both. */
 function pathFirst(dir: string): NodeJS.ProcessEnv {
@@ -39,9 +40,10 @@ function pathFirst(dir: string): NodeJS.ProcessEnv {
 
 /**
  * The shells a seat's own tools run a command line in, each with a word that puts a command second: cmd on Windows,
- * beside the Git Bash that reads the script where it is on PATH, and sh elsewhere. The bin directory goes first on PATH.
- * Git for Windows leaves its usr/bin off PATH unless its installer was told otherwise, so a run that reaches no sh says
- * which half of the directory nothing exercised: a green job that quietly proved less is worse than one that says so.
+ * beside the Git Bash that reads the script where it is on PATH, sh elsewhere, and PowerShell 7 where it is installed,
+ * which claude and codex run commands in on Windows. The bin directory goes first on PATH. Git for Windows leaves its
+ * usr/bin off PATH unless its installer was told otherwise, so a run that reaches no sh, or no PowerShell, says which
+ * shell nothing exercised: a green job that quietly proved less is worse than one that says so.
  */
 function shellsAt(dir: string, t: TestContext) {
   const sh = WIN ? (executableIn(pathDirs(), "sh") ?? executableIn(pathDirs(), "bash")) : "/bin/sh";
@@ -49,15 +51,29 @@ function shellsAt(dir: string, t: TestContext) {
     t.diagnostic(
       "no sh or bash on PATH: nothing ran the extensionless script Git Bash reads, only the batch file cmd finds",
     );
+  const pwsh = executableIn(pathDirs(), "pwsh");
+  if (!pwsh) t.diagnostic("no pwsh on PATH: nothing ran a git typed into PowerShell");
   const forms = [
-    ...(WIN ? [{ file: COMSPEC, lead: ["/d", "/c"], quote: cmdQuoted, second: "call" }] : []),
-    ...(sh ? [{ file: sh, lead: ["-c"], quote: shQuoted, second: "env" }] : []),
+    ...(WIN
+      ? [{ file: COMSPEC, lead: ["/d", "/c"], line: (argv: string[]) => argv.map(cmdQuoted).join(" "), second: "call" }]
+      : []),
+    ...(sh ? [{ file: sh, lead: ["-c"], line: (argv: string[]) => argv.map(shQuoted).join(" "), second: "env" }] : []),
+    // A command's name is a bare word, as a seat types it: quoted first, PowerShell reads a string, not a command.
+    ...(pwsh
+      ? [
+          {
+            file: pwsh,
+            lead: ["-NoProfile", "-NonInteractive", "-Command"],
+            line: ([name, ...args]: string[]) => [name, ...args.map(psQuoted)].join(" "),
+            second: "&",
+          },
+        ]
+      : []),
   ];
-  return forms.map(({ file, lead, quote, second }) => ({
+  return forms.map(({ file, lead, line, second }) => ({
     how: file,
     second,
-    run: (argv: string[]) =>
-      spawnSync(file, [...lead, argv.map(quote).join(" ")], { encoding: "utf-8", env: pathFirst(dir) }),
+    run: (argv: string[]) => spawnSync(file, [...lead, line(argv)], { encoding: "utf-8", env: pathFirst(dir) }),
   }));
 }
 

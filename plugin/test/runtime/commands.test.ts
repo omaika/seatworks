@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import type { StreamMessage } from "../../server/adapters/paseo/stream.ts";
 import type { Rules } from "../../server/runtime/watch/facts.ts";
@@ -144,10 +146,59 @@ test("in a seat's own desk-made copy, removing relative paths is not a page, whi
   }
 });
 
+test("a claude seat's PowerShell and Monitor commands reach the watch as shell commands, as the harness file names those tools", async (t) => {
+  // Paseo 0.9.2 reads only Bash as a claude shell: the rest come as an unknown detail holding the tool's own input.
+  const h = harness();
+  const noticed = noticesOf(h, t);
+  const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
+  const scope = { acceptance: ["a"], outOfScope: ["the rest"] };
+  await h.call(sup, "supervisor", "open_lane", { title: "Server", outcome: "a server", ...scope });
+  const lead = h.ledger().lanes.L1!.lead!;
+  await h.call(lead, "lead", "add_tasks", { tasks: [{ key: "t", title: "Serve", goal: "g", ...scope }] });
+  await h.tick();
+  const peer = h.ledger().tasks["L1-T1"]!.peer!;
+  const timeline = h.timelineOf(peer);
+  timeline.beat("turn_started", "t1");
+  for (const [id, [name, command]] of [
+    ["PowerShell", "Remove-Item -Recurse -Force C:\\other"],
+    ["Monitor", "git reset --hard"],
+  ].entries())
+    timeline.add(
+      {
+        type: "tool_call",
+        callId: `c${id}`,
+        name,
+        status: "running",
+        detail: { type: "unknown", input: { command, description: "x" }, output: null },
+      },
+      "t1",
+    );
+  await settle();
+  await noticed();
+  assert.deepEqual(
+    h.events("watch.fact").map((event) => [event.fact, event.level, event.quote]),
+    [
+      ["destructive", "page", "Remove-Item -Recurse -Force C:\\other"],
+      ["destructive", "page", "git reset --hard"],
+    ],
+  );
+});
+
 test("Windows removals are read as the shell's own, and what counts as scratch is the catalog's", () => {
-  for (const command of ["Remove-Item -Recurse -Force src", "rmdir /s /q build", "rd /S build"])
+  for (const command of [
+    "Remove-Item -Recurse -Force src",
+    "ri -Recurse -Force C:\\other",
+    "rmdir /s /q build",
+    "rd /S build",
+  ])
     assert.equal(paged(command).length, 1, command);
-  for (const command of ["Remove-Item a.txt", "rmdir build", "rd empty"]) assert.deepEqual(paged(command), [], command);
+  for (const command of ["Remove-Item a.txt", "ri a.txt", "rmdir build", "rd empty"])
+    assert.deepEqual(paged(command), [], command);
+  assert.deepEqual(
+    paged("ri -Recurse -Force out", rules({ ownCopy: true })),
+    [],
+    "what it removes in its own copy is its own",
+  );
   assert.deepEqual(paged(`Remove-Item -Recurse -Force "$env:TEMP\\probe"`), []);
   assert.deepEqual(paged("rmdir /s /q %TEMP%\\probe && rd /s %TEMP%\\other"), []);
   assert.deepEqual(
@@ -156,6 +207,67 @@ test("Windows removals are read as the shell's own, and what counts as scratch i
     "a settings layer names its own",
   );
   assert.equal(paged("rm -rf /tmp/run", rules({ scratch: /^\/scratch\// })).length, 1);
+});
+
+test("Windows shells are read as they run: cmd's `&` separates, its deletions and wrappers count, and drive-letter paths are placed", () => {
+  for (const command of [
+    "cd x & rm -rf /work",
+    "cd C:\\scratch & rmdir /s /q build",
+    "del /f /s /q build",
+    "erase /f build",
+    'cmd /c "rmdir /s /q build"',
+  ])
+    assert.equal(paged(command).length, 1, command);
+  assert.deepEqual(paged("del notes.txt"), [], "as `rm notes.txt` is not");
+  assert.deepEqual(paged("rmdir /s /q %TEMP%\\probe & echo done"), [], "what follows a `&` is a command of its own");
+  assert.deepEqual(paged("cd %TEMP% 2>&1 && rmdir /s /q probe"), [], "a redirection is no separator");
+  assert.equal(paged("cd src | xargs rm -rf /work").length, 1, "what follows a cd in its own part is still read");
+  assert.equal(paged("cd x | xargs rm -rf /y").length, 1);
+  assert.deepEqual(paged("sleep 1 & rm -rf build"), ["rm -rf build"], "quoted as the command after the `&`");
+
+  // An absolute cd into the seat's own copy lands there, in either spelling; one that leaves it still pages.
+  const posixOwn = rules({ ownCopy: true, cwd: "/work" });
+  const windowsOwn = rules({ ownCopy: true, cwd: "C:\\work" });
+  assert.deepEqual(paged("cd /work/src && rm -rf dist", posixOwn), []);
+  assert.deepEqual(paged("cd C:\\work\\src && rm -rf dist", windowsOwn), []);
+  assert.equal(paged("cd C:\\work\\src && rm -rf dist", rules({ ownCopy: true, cwd: "C:\\other" })).length, 1);
+  for (const command of [
+    "cd /other/src && rm -rf dist",
+    "cd /work/../other && rm -rf dist",
+    "cd ../other && rm -rf dist",
+    "cd /work && rm -rf .git",
+    "rm -rf ./.git",
+  ])
+    assert.equal(paged(command, posixOwn).length, 1, command);
+  for (const command of [
+    "cd D:\\other\\src && rm -rf dist",
+    "cd D:\\work\\src && rm -rf dist",
+    "cd C:\\work\\..\\other && rm -rf dist",
+    "cd ..\\other && rmdir /s /q dist",
+    "cd C:\\work && rmdir /s /q .git",
+    "rmdir /s /q .\\.git",
+    "rd /s /q .GIT",
+  ])
+    assert.equal(paged(command, windowsOwn).length, 1, command);
+  // A backslash before a space ends a Windows path; read as an escape, `..\ ` stayed in the copy.
+  for (const command of [
+    "rd /s /q ..\\ build",
+    "rd /s /q ..\\ ",
+    "Remove-Item -Recurse -Force ..\\ ",
+    "cd ..\\ && rd /s /q work",
+    "cd ..\\ & rd /s /q work",
+    "cd \\ && rd /s /q build",
+  ])
+    assert.equal(paged(command, windowsOwn).length, 1, command);
+  assert.equal(paged("rm -rf /c build", posixOwn).length, 1, "a slash flag is cmd's; to Git Bash `/c` is the C: drive");
+  assert.deepEqual(
+    paged(
+      "cd C:\\Users\\me\\AppData\\Local\\Temp\\probe && rmdir /s /q out",
+      rules({ temp: "C:\\Users\\me\\AppData\\Local\\Temp" }),
+    ),
+    [],
+    "the machine's temporary directory is scratch",
+  );
 });
 
 test("what else throws work or data away is paged: stashes, discarded changes, deleting finds, killed processes, deleted rows and torn-down infrastructure", () => {
@@ -202,6 +314,22 @@ test("a command that reads, prints, dumps or stages a secret is paged, and one o
     )[0]!.level,
     "page",
   );
+});
+
+test("a shell read of a file a seat's own file tools may not read is paged, in POSIX and Windows spellings of home", () => {
+  // Unsandboxed, nothing turns a seat's read refusals into its shell's: the watch is what sees the read.
+  for (const command of [
+    "cat ~/.local/share/seatworks-v3/keys.json",
+    `cat "$HOME/.local/share/seatworks-v3/projects/shop/settings.json"`,
+    `cat ${join(homedir(), ".paseo", "config.json")}`,
+    "Get-Content $env:USERPROFILE\\.local\\share\\seatworks-v3\\keys.json",
+    "type %USERPROFILE%\\.paseo\\config.json",
+    "cat ~/.codex/auth.json",
+    "gc ~/.pi/agent/auth.json",
+  ])
+    assert.equal(raised("secret", command).length, 1, command);
+  for (const command of ["cat ~/.local/share/seatworks-v3/projects/shop/ledger.json", "cat .paseo/config.json"])
+    assert.deepEqual(raised("secret", command), [], command);
 });
 
 test("sending data out, running a download or code from outside the copy is paged, and a new dependency is noted", () => {

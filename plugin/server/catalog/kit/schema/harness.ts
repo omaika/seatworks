@@ -6,6 +6,9 @@ import { McpTransport } from "./mcp.ts";
 /** A refusal the desk adds to a seat's settings: `as`, with each `{command}` or `{path}` filled in, laid over what is at `at`. */
 const Refusal = z.strictObject({ at: text, as: z.union([z.array(z.unknown()).min(1), Json]) });
 
+/** A platform as the daemon's Node names it. */
+const Platform = z.enum(["darwin", "linux", "win32"]);
+
 /** `harness/<id>/harness.json`: how one agent harness is set up, launched and read. */
 export const HarnessFile = z
   .strictObject({
@@ -16,6 +19,8 @@ export const HarnessFile = z
     profileRoot: text,
     contextFile: text.optional(),
     skillsDir: text,
+    /** The platforms where the agent runs a seat's commands in an OS sandbox of its own; elsewhere the seat runs unsandboxed. */
+    sandboxedOn: z.array(Platform).optional(),
     /** `profile`: where a role's settings name a permission profile (`key`), each path is granted `value` in it (`at`). */
     stateWrites: z
       .strictObject({
@@ -39,12 +44,16 @@ export const HarnessFile = z
         exitField: text.optional(),
         pseudoCalls: z.array(z.strictObject({ name: text, detail: text })).optional(),
         unparsed: z.strictObject({ input: text, error: Pattern }).optional(),
+        /** Tools that run a seat's commands where Paseo does not read them as a shell, each with where its detail keeps the command. */
+        shells: z.record(text, text).optional(),
       })
       .optional(),
     settings: z.strictObject({
       file: text,
       source: text,
       roleSource: text,
+      /** A file laid over the role's settings on that platform alone. */
+      platforms: z.partialRecord(Platform, text).optional(),
       inherits: z.strictObject({ from: text, keys: texts }).optional(),
       overlayEnv: text.optional(),
     }),
