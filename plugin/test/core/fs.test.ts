@@ -7,15 +7,26 @@ import {
   readFileSync,
   readlinkSync,
   renameSync,
+  realpathSync,
+  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { test } from "node:test";
 import { writeConfigAtomic } from "../../server/core/config-file.ts";
-import { LeftAlone, ensureLink, isLink, makeLink, present, writeIfChanged } from "../../server/core/fs.ts";
+import {
+  LeftAlone,
+  ensureLink,
+  isLink,
+  landsAt,
+  makeLink,
+  present,
+  samePath,
+  writeIfChanged,
+} from "../../server/core/fs.ts";
 import { stateRoot } from "../../server/core/paths.ts";
 import { tempDir } from "../tempdir.ts";
 
@@ -237,4 +248,108 @@ test("a link half made is not left looking whole: the name the desk keeps goes d
   assert.throws(() => makeLink(seatPath, target), /could not be made a second name/);
   assert.equal(isLink(seatPath), false, "nothing that reads as the desk's link is left where the build stopped");
   assert.equal(present(seatPath), false);
+});
+
+test("a link's own text is read against the folder that link lies in, not against the working directory", () => {
+  const root = realpathSync(tempDir("sw2-rel-"));
+  const target = join(root, "one");
+  mkdirSync(target);
+  const path = join(root, "where", "dir");
+  mkdirSync(dirname(path));
+  // The text a link made outside the desk carries: relative, and against the working directory it lands somewhere else.
+  symlinkSync(join("..", "one"), path);
+  assert.notEqual(resolve(process.cwd(), "..", "one"), target);
+  assert.equal(ensureLink(path, target), false, "it already leads to its target, so nothing is remade");
+  assert.equal(readlinkSync(path), join("..", "one"), "and its own text is left as it was");
+});
+
+/** A stand-in for Windows, where a directory is linked by a junction and a file by a second name for it, as the suite does elsewhere. */
+function asWindows(t: { after: (fn: () => void) => void }): void {
+  const real = process.platform;
+  t.after(() => Object.defineProperty(process, "platform", { value: real, configurable: true }));
+  Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+}
+
+test("on Windows a file wanted where a directory link stands is given a second name, the link that stood there removed", (t) => {
+  asWindows(t);
+  const root = tempDir("sw2-kind-file-");
+  const file = join(root, "file.json");
+  writeFileSync(file, "what the file holds");
+  const path = join(root, "link");
+  const gone = join(root, "gone");
+  mkdirSync(gone);
+  assert.equal(ensureLink(path, gone), true, "a junction, which is how a directory is linked on Windows");
+  // The folder it led to is swept away, as a snapshot no seat touched is, leaving the link where it stood.
+  rmSync(gone, { recursive: true });
+
+  assert.equal(ensureLink(path, file), true, "the link of the other kind goes and a second name for the file is made");
+  assert.equal(readFileSync(path, "utf-8"), "what the file holds");
+  assert.equal(statSync(path, { bigint: true }).ino, statSync(file, { bigint: true }).ino, "of the one file");
+});
+
+test("on Windows a directory wanted where a file's second name stands is junctioned, the name that stood there removed", (t) => {
+  asWindows(t);
+  const root = tempDir("sw2-kind-dir-");
+  const dir = join(root, "dir");
+  mkdirSync(dir);
+  writeFileSync(join(dir, "in"), "what the folder holds");
+  const file = join(root, "file.json");
+  writeFileSync(file, "what the file holds");
+  const path = join(root, "link");
+  assert.equal(ensureLink(path, file), true, "a second name, which is how a file is shared on Windows");
+
+  assert.equal(ensureLink(path, dir), true, "the name of the other kind goes and a junction is made");
+  assert.equal(readFileSync(join(path, "in"), "utf-8"), "what the folder holds");
+  assert.equal(readFileSync(file, "utf-8"), "what the file holds", "while the file it left keeps its content");
+});
+
+test("where two paths land is one comparison the whole plugin shares: Windows' own spelling of a path, and one that is not there to canonicalise", (t) => {
+  const real = process.platform;
+  t.after(() => Object.defineProperty(process, "platform", { value: real, configurable: true }));
+
+  const root = realpathSync(tempDir("sw2-same-"));
+  const dir = join(root, "content");
+  mkdirSync(dir);
+  const alias = join(root, "alias");
+  symlinkSync(root, alias);
+  assert.equal(samePath(dir, join(alias, "content")), true, "one folder reached two ways is the one folder");
+  assert.equal(samePath(dir, join(root, "other")), false, "and two names of two places are not");
+  assert.equal(samePath(dir.toUpperCase(), dir), false, "spelling counts where the platform counts it");
+
+  Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+  assert.equal(samePath(dir.toUpperCase(), dir), true, "and does not where Windows spells a path back its own way");
+
+  const missing = join(root, "not-there");
+  assert.equal(samePath(missing, missing), true, "what cannot be canonicalised stands for where it lands");
+  assert.equal(samePath(missing, join(root, "nor-there")), false);
+});
+
+test("where a path lands is a form of its own, which a caller may index by, and comparing two of them is what samePath is", (t) => {
+  const real = process.platform;
+  t.after(() => Object.defineProperty(process, "platform", { value: real, configurable: true }));
+
+  const root = realpathSync(tempDir("sw2-lands-"));
+  const dir = join(root, "content");
+  mkdirSync(dir);
+  const alias = join(root, "alias");
+  symlinkSync(root, alias);
+  const spellings = [dir, join(alias, "content"), join(dir, ".")];
+  const landed = spellings.map(landsAt);
+  assert.deepEqual(new Set(landed).size, 1, "every spelling of one place lands in the one form a caller can index by");
+  for (const spelling of spellings) assert.equal(samePath(spelling, dir), true, "and compares equal, as it must");
+
+  const other = join(root, "other");
+  mkdirSync(other);
+  assert.notEqual(landsAt(other), landsAt(dir), "two places land apart");
+  assert.equal(samePath(other, dir), false);
+
+  const missing = join(root, "not-there");
+  assert.equal(landsAt(missing), landsAt(missing), "what cannot be canonicalised lands somewhere stable all the same");
+  assert.equal(samePath(missing, missing), true);
+  assert.notEqual(landsAt(missing), landsAt(join(root, "nor-there")), "and two of those land apart");
+
+  assert.notEqual(landsAt(dir.toUpperCase()), landsAt(dir), "spelling counts where the platform counts it");
+  Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+  assert.equal(landsAt(dir.toUpperCase()), landsAt(dir), "and not where Windows spells a path back its own way");
+  assert.equal(samePath(dir.toUpperCase(), dir), true, "the one rule, whichever way a caller reaches it");
 });

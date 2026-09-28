@@ -48,18 +48,24 @@ export function present(path: string): boolean {
   }
 }
 
-/** Windows spells a link's target back its own way — long form, backslashed, in its own case — so compare where each lands. */
-function samePath(a: string, b: string): boolean {
-  const lands = (path: string): string => {
-    try {
-      return realpathSync(path);
-    } catch {
-      // Nothing there to canonicalise, so what the link says stands for where it lands.
-      return resolve(path);
-    }
-  };
-  const [one, two] = [lands(a), lands(b)];
-  return process.platform === "win32" ? one.toLowerCase() === two.toLowerCase() : one === two;
+/**
+ * Where a path lands, as one form to index by: Windows spells a path back its own way — long form, backslashed, in its
+ * own case — so the canonical path is taken, folded where the platform keeps no case.
+ */
+export function landsAt(path: string): string {
+  let landed;
+  try {
+    landed = realpathSync(path);
+  } catch {
+    // Nothing there to canonicalise, so what the path says stands for where it lands.
+    landed = resolve(path);
+  }
+  return process.platform === "win32" ? landed.toLowerCase() : landed;
+}
+
+/** Whether two paths land in the same place. */
+export function samePath(a: string, b: string): boolean {
+  return landsAt(a) === landsAt(b);
 }
 
 /**
@@ -112,9 +118,12 @@ export function removeLink(path: string): void {
   forgetLink(path);
 }
 
-/** Whether the link at `path` already leads to `target`. */
+/** Whether the link at `path` already leads to `target`: one of the other kind leads there no more than a link elsewhere does. */
 function leadsTo(path: string, target: string): boolean {
-  if (linkKind(target) !== "hard") return samePath(readlinkSync(path), target);
+  const kind = linkKind(target);
+  if ((kind === "hard") === lstatSync(path).isSymbolicLink()) return false;
+  // A link's text is its own, and a relative one points from the folder that link lies in, not from where this process stands.
+  if (kind !== "hard") return samePath(resolve(dirname(path), readlinkSync(path)), target);
   const [at, to] = [statSync(path, { bigint: true }), statSync(target, { bigint: true })];
   return at.ino === to.ino && at.dev === to.dev;
 }

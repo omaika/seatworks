@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { resolveTeam } from "../../server/catalog/team/team.ts";
 import { makeLink } from "../../server/core/fs.ts";
@@ -10,6 +20,7 @@ import { writeJson } from "../../server/core/store.ts";
 import { emptyLedger } from "../../server/domain/ledger.ts";
 import { removeGarbage, scanGarbage } from "../../server/upkeep/clean.ts";
 import { makeKit } from "../kit.ts";
+import { reported } from "../console.ts";
 import { noRead } from "../no-read.ts";
 import { tempDir } from "../tempdir.ts";
 
@@ -45,6 +56,49 @@ function world() {
   return { home, shop, seat, copy, live, ctx, moveLead: (to: string) => (lead = to) };
 }
 
+/**
+ * Ways this platform spells one folder that are not how the plugin spells it: through a link to it, and on Windows its 8.3
+ * short form and another case. Each is a spelling a seat's link into the kit can read back as.
+ */
+function otherSpellings(dir: string, alias: string): { label: string; root: string }[] {
+  makeLink(alias, dir);
+  const spellings = [{ label: "alias", root: alias }];
+  if (process.platform === "win32") {
+    const short = execFileSync("cmd", ["/c", `for %I in ("${dir}") do @echo %~sI`], { encoding: "utf-8" }).trim();
+    if (short && short !== dir) spellings.push({ label: "short", root: short });
+    spellings.push({ label: "case", root: join(dirname(dir), basename(dir).toUpperCase()) });
+  }
+  return spellings;
+}
+
+/**
+ * Leaves `dir` listable while what is in it will not be looked at, and hands back what puts it right; nothing where this
+ * platform will not have it that way, since a mode that takes search off a folder is POSIX's alone.
+ */
+function entriesWillNotStat(dir: string): (() => void) | undefined {
+  chmodSync(dir, 0o400);
+  const put = () => chmodSync(dir, 0o700);
+  try {
+    lstatSync(join(dir, readdirSync(dir)[0] ?? ""));
+  } catch {
+    return put;
+  }
+  put();
+  return undefined;
+}
+
+/** A link at `path` whose text is relative to the folder it lies in; false where an ordinary account may make no such link. */
+function linkRelative(path: string, target: string): boolean {
+  mkdirSync(dirname(path), { recursive: true });
+  try {
+    symlinkSync(relative(dirname(path), target), path);
+    return true;
+  } catch {
+    // Windows without Developer Mode lets an ordinary account point only a junction at a folder, and that takes a full path.
+    return false;
+  }
+}
+
 const found = async (ctx: Parameters<typeof scanGarbage>[0]) =>
   (await scanGarbage(ctx))
     .map((item) => [item.kind, item.path, item.why, item.held, item.careful] as const)
@@ -52,6 +106,7 @@ const found = async (ctx: Parameters<typeof scanGarbage>[0]) =>
 
 test("clean up lists only what nothing will use again: seats nothing will sit in, copies no slot holds, detached records and unlinked copies of the guides", async (t) => {
   const { home, shop, seat, copy, live, ctx, moveLead } = world();
+  const said = reported(t);
   assert.deepEqual(await found(ctx), [], "a machine with nothing left over lists nothing");
   const current = seat("sw2-lead-claude-shop-abc123");
   const detached = seat("sw2-peer-omp-gone-def456");
@@ -104,6 +159,78 @@ test("clean up lists only what nothing will use again: seats nothing will sit in
     ].sort((a, b) => String(a[1]).localeCompare(String(b[1]))),
     "never a seat a seat is running in, a copy a slot holds, a copy of the guides in use, or a name that is no seat's",
   );
+  const alias = join(home, "content-alias");
+  const spellings = otherSpellings(contentRoot(home), alias);
+  for (const { label, root } of spellings) {
+    mkdirSync(join(contentRoot(home), `guides-${label}`), { recursive: true });
+    mkdirSync(join(current, "kit", label), { recursive: true });
+    makeLink(join(current, "kit", label, "guides"), join(root, `guides-${label}`));
+  }
+  const relatively = join(contentRoot(home), "guides-relative");
+  mkdirSync(relatively, { recursive: true });
+  if (!linkRelative(join(current, "kit", "relative", "guides"), relatively)) rmSync(relatively, { recursive: true });
+  assert.deepEqual(
+    (await found(ctx)).flatMap(([kind, path]) => (kind === "snapshot" ? [path] : [])),
+    [stale],
+    `a snapshot a seat links to is kept however the link spells the content root (${spellings
+      .map(({ label }) => label)
+      .join(", ")}${existsSync(relatively) ? ", relative to the link's own folder" : ""})`,
+  );
+
+  const readKitAgain = noRead(join(current, "kit"));
+  assert.deepEqual(
+    (await found(ctx)).flatMap(([kind, path]) => (kind === "snapshot" ? [path] : [])),
+    [],
+    "a folder under a seat that cannot be read may link to any copy of the guides, so none of them is offered",
+  );
+  readKitAgain();
+
+  const readProfilesAgain = noRead(join(home, ".claude", "profiles"));
+  assert.deepEqual(
+    (await found(ctx)).flatMap(([kind, path]) => (kind === "snapshot" ? [path] : [])),
+    [],
+    "a harness's folder of seats that is there and will not be listed hides every seat's links, so no copy is offered",
+  );
+  readProfilesAgain();
+  assert.match(
+    said(),
+    new RegExp(`${join(home, ".claude", "profiles")} is there and would not be read`),
+    "the owner is told which folder stopped the sweep, rather than being left with a cleanup that quietly does nothing",
+  );
+
+  // Linked while the folder it names is there, so every platform makes the link its own way, and emptied afterwards:
+  // what is left is a link whose own tail has gone, through a spelling of the content root that is not the plugin's.
+  const dangling = join(contentRoot(home), "guides-dangling");
+  mkdirSync(join(dangling, "skills"), { recursive: true });
+  mkdirSync(join(current, "kit", "dangling"), { recursive: true });
+  makeLink(join(current, "kit", "dangling", "guides"), join(alias, "guides-dangling", "skills"));
+  rmSync(join(dangling, "skills"), { recursive: true });
+  assert.deepEqual(
+    (await found(ctx)).flatMap(([kind, path]) => (kind === "snapshot" ? [path] : [])),
+    [stale],
+    "a link whose own tail has gone still holds the copy of the guides it lies in, alias and all",
+  );
+
+  const stattable = entriesWillNotStat(join(current, "kit"));
+  assert.deepEqual(
+    (await found(ctx)).flatMap(([kind, path]) => (kind === "snapshot" ? [path] : [])),
+    stattable ? [] : [stale],
+    stattable
+      ? "a seat's folder that lists but whose entries will not be looked at may link to any copy of the guides, so none is offered"
+      : "this platform makes no folder that lists while its entries will not be looked at, so the scan runs as it always does",
+  );
+  if (stattable) assert.match(said(), new RegExp(`${join(current, "kit", "")}[^\n]* is there and would not be read`));
+  stattable?.();
+
+  const seatsOfOmp = join(home, ".omp", "seats");
+  renameSync(seatsOfOmp, `${seatsOfOmp}-away`);
+  assert.deepEqual(
+    (await found(ctx)).flatMap(([kind, path]) => (kind === "snapshot" ? [path] : [])),
+    [stale],
+    "a harness with no folder of seats at all holds nothing: it is not there, rather than there and unreadable",
+  );
+  renameSync(`${seatsOfOmp}-away`, seatsOfOmp);
+
   moveLead("omp");
   assert.deepEqual(
     (await found(ctx)).find(([, path]) => path === current),

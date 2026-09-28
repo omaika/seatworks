@@ -1,14 +1,15 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmSync, rmdirSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { CleanItem, CleanView } from "../../shared/upkeep-views.ts";
 import type { Kit } from "../catalog/kit/kit.ts";
 import type { Team } from "../catalog/team/team.ts";
 import { git, pristineState } from "../core/git.ts";
 import { contentRoot, expandHome, guidesDir, stateRoot, worktreeRoot } from "../core/paths.ts";
 import { errorText } from "../core/errors.ts";
+import { daemonLog } from "../core/logger.ts";
 import { readLedger } from "../desk/store/ledger.ts";
 import type { Project } from "../desk/project/project.ts";
-import { firstUnder } from "../core/fs.ts";
+import { landsAt, present } from "../core/fs.ts";
 import { isRecord } from "../core/json.ts";
 import { readKept } from "../core/store.ts";
 
@@ -145,36 +146,94 @@ function records(ctx: CleanContext): Found[] {
   return found;
 }
 
-function linksInto(dir: string, root: string, depth: number, into: Set<string>): void {
-  for (const name of entries(dir)) {
+type Links = { targets: string[]; unreadable: string | undefined };
+
+/** Whether an error over a path says there is nothing there, rather than that what is there will not be read. */
+function gone(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+/** What is in `dir`: nothing where the folder is not there, and undefined where it is there and will not be listed. */
+function names(dir: string): string[] | undefined {
+  try {
+    return readdirSync(dir);
+  } catch (error) {
+    return gone(error) ? [] : undefined;
+  }
+}
+
+function linksInto(dir: string, depth: number, found: Links): void {
+  const here = names(dir);
+  if (!here) {
+    // A folder that will not be listed may hold a link into any snapshot, so it holds every one of them rather than none.
+    found.unreadable ??= dir;
+    return;
+  }
+  for (const name of here) {
     const path = join(dir, name);
     let stat;
     try {
       stat = lstatSync(path);
-    } catch {
+    } catch (error) {
+      // What is there and will not be looked at may be a link into any snapshot; only what has gone holds nothing.
+      if (!gone(error)) found.unreadable ??= path;
       continue;
     }
     if (stat.isSymbolicLink()) {
-      const target = readlinkSync(path);
-      const real = isAbsolute(target) ? target : resolve(dir, target);
-      const under = firstUnder(root, real);
-      if (under) into.add(under);
-    } else if (stat.isDirectory() && depth > 0) linksInto(path, root, depth - 1, into);
+      try {
+        // A link's text is its own: a relative one points from the folder the link lies in, not from where this process stands.
+        found.targets.push(resolve(dir, readlinkSync(path)));
+      } catch (error) {
+        // Text that will not be read may name any snapshot, so it holds every one of them; only a link that has gone holds none.
+        if (!gone(error)) found.unreadable ??= path;
+      }
+    } else if (stat.isDirectory() && depth > 0) linksInto(path, depth - 1, found);
   }
+}
+
+/**
+ * Where a link's target lands, canonicalised once: what of the path is there decides it, and a tail that has gone - a
+ * dangling link, or one into a file since removed - is left as the link spells it, below a folder that was canonicalised.
+ */
+function targetLandsAt(target: string): string {
+  const gone: string[] = [];
+  let at = target;
+  while (!present(at) && dirname(at) !== at) {
+    gone.unshift(basename(at));
+    at = dirname(at);
+  }
+  return join(landsAt(at), ...gone);
 }
 
 /** A copy of the guides or a skill no seat directory links to: the sweep would take it in two weeks. */
 function snapshots(ctx: CleanContext): Found[] {
   const root = contentRoot(ctx.home);
-  const linked = new Set<string>();
-  linksInto(dirname(guidesDir(ctx.home)), root, 0, linked);
+  const links: Links = { targets: [], unreadable: undefined };
+  linksInto(dirname(guidesDir(ctx.home)), 0, links);
   for (const harness of Object.values(ctx.kit.harnesses)) {
     const seatRoot = expandHome(harness.profileRoot, ctx.home);
-    for (const name of entries(seatRoot))
-      if (name.startsWith(ctx.kit.prefix)) linksInto(join(seatRoot, name), root, 3, linked);
+    const there = names(seatRoot);
+    if (!there) links.unreadable ??= seatRoot;
+    else for (const name of there) if (name.startsWith(ctx.kit.prefix)) linksInto(join(seatRoot, name), 3, links);
   }
-  return entries(root)
-    .filter((name) => !linked.has(name) && !/\.\d+\.building$/.test(name))
+  if (links.unreadable) {
+    daemonLog.error(`every copy of the guides was left alone: ${links.unreadable} is there and would not be read`);
+    return [];
+  }
+  const taken = entries(root).filter((name) => !/\.\d+\.building$/.test(name));
+  const named = new Map(taken.map((name) => [landsAt(join(root, name)), name]));
+  const linked = new Set<string>();
+  for (const target of links.targets)
+    for (let at = targetLandsAt(target), up = dirname(at); ; [at, up] = [up, dirname(up)]) {
+      const name = named.get(at);
+      if (name !== undefined) {
+        linked.add(name);
+        break;
+      }
+      if (up === at) break;
+    }
+  return taken
+    .filter((name) => !linked.has(name))
     .map((name) => item(join(root, name), "snapshot", "no seat links to it"));
 }
 
