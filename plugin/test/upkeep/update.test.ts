@@ -70,7 +70,7 @@ test("check says where the checkout stands and what the update will need, and mo
   assert.match(local.date ?? "", /^\d{4}-\d{2}-\d{2}$/);
 
   publish(
-    { "package.json": '{"dependencies":{"zod":"4"}}', "paseo-plugin.json": '{"requirements":{"paseo":">=0.9.0"}}' },
+    { "package.json": '{"dependencies":{"zod":"4"}}', "paseo-plugin.json": '{"requirements":{"paseo":">=0.11.0"}}' },
     "Need zod and a newer Paseo",
   );
   const view = await checkUpdate(ctx);
@@ -79,7 +79,7 @@ test("check says where the checkout stands and what the update will need, and mo
     view.commits.map((entry) => entry.subject),
     ["Need zod and a newer Paseo", "Add a"],
   );
-  assert.deepEqual([view.installs, view.paseo], [true, ">=0.9.0"]);
+  assert.deepEqual([view.installs, view.paseo], [true, ">=0.11.0"]);
   assert.equal(git(dir, "rev-parse", "HEAD"), before);
 
   publish({ "package.json": "{ not json" }, "Break the package");

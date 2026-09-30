@@ -276,7 +276,7 @@ its own, however short.
   prefix, often two clauses, such as "Let the work decide how many agents run, not a quota". Never
   `fix:`/`feat:` or a file name.
 
-## Paseo 0.9 facts that are easy to get wrong
+## Paseo 0.10 facts that are easy to get wrong
 
 - A plugin gives an agent tools through `mcpServers` in `before('agent.create')` and cannot change
   which servers it has later; a server can still change the tools it lists (`list_changed`), as both
@@ -293,7 +293,9 @@ its own, however short.
   and an `after` page returns whole entries, restating rows before its cursor.
 - Every message sent into a chat carries a `clientMessageId`; the client makes one when the sender
   gives none. A daemon restart, or a read of an archived agent, rebuilds the history from the agent's
-  own transcript with none, so a user message without one has no known sender.
+  own transcript with none, so a user message without one has no known sender. Paseo looks for a
+  Claude transcript under the `CLAUDE_CONFIG_DIR` of the agent's launch env, as `agent.session_open`
+  left it: a seat's own profile.
 - `timeline.subscribe()` delivers live events only, prose and reasoning included. After a reconnect
   it sends `subscription_restored` and none of what was missed; a failed one sends `error` and is
   released. `timeline.append` writes a durable item into an agent's own timeline.

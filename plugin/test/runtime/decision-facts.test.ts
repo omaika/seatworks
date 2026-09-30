@@ -56,7 +56,7 @@ test("a claude Lead that looked through PowerShell before its accept looked", as
   h.commit(h.ledger().tasks["L1-T1"]!.worktree!, "a.txt", "done\n");
   await h.call(peer, "peer", "done", { outcome: "complete", summary: "done" });
   stream.add({ type: "user_message", text: "HANDBACK L1-T1 (Clean build) from agent" }, "l1");
-  // As Paseo 0.9.2 gives a claude PowerShell call: an unknown detail holding the tool's own input.
+  // As Paseo 0.10.2 gives a claude PowerShell call: an unknown detail holding the tool's own input.
   const detail = { type: "unknown", input: { command: "git diff main", description: "diff" }, output: null };
   stream.add({ type: "tool_call", callId: "p", name: "PowerShell", status: "completed", detail }, "l1");
   const accepted = await h.call(lead, "lead", "accept", { task: "L1-T1" });
@@ -93,7 +93,7 @@ test("a claude review whose commands ran through PowerShell ran them: its whole 
   await h.call(peer, "peer", "done", { outcome: "complete", summary: "done" });
   await h.call(lane.lead!, "lead", "start_review", { task: "L1-T1", focus: "Is it right?" });
   const reviewer = h.ledger().tasks["L1-R1"]!.peer!;
-  // As Paseo 0.9.2 gives a claude PowerShell call: an unknown detail holding the tool's own input.
+  // As Paseo 0.10.2 gives a claude PowerShell call: an unknown detail holding the tool's own input.
   const detail = { type: "unknown", input: { command: "git diff main", description: "diff" }, output: null };
   h.timelineOf(reviewer).add({ type: "tool_call", callId: "p", name: "PowerShell", status: "completed", detail }, "r1");
   await h.call(reviewer, "reviewer", "done", { verdict: "accept", answer: "Right.", ran: ["git diff main"] });

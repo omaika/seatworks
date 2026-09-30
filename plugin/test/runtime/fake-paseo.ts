@@ -130,7 +130,7 @@ export function fakePaseo() {
       },
     };
   };
-  // Paseo 0.9.2 archives an agent's children with it, and theirs (live probe, v3 LEDGER D79).
+  // Paseo 0.10.2 archives an agent's children with it, and theirs (`cascadeArchiveChildren`).
   const archiveWithChildren = (id: string): void => {
     const agent = agents.get(id);
     if (!agent || agent.archivedAt) return;

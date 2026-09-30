@@ -147,7 +147,7 @@ test("in a seat's own desk-made copy, removing relative paths is not a page, whi
 });
 
 test("a claude seat's PowerShell and Monitor commands reach the watch as shell commands, as the harness file names those tools", async (t) => {
-  // Paseo 0.9.2 reads only Bash as a claude shell: the rest come as an unknown detail holding the tool's own input.
+  // Paseo 0.10.2 reads only Bash as a claude shell: the rest come as an unknown detail holding the tool's own input.
   const h = harness();
   const noticed = noticesOf(h, t);
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");

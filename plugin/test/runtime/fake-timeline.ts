@@ -13,7 +13,7 @@ const ENDS = new Set(["turn_completed", "turn_failed", "turn_canceled"]);
 
 const known = (detail: unknown) => detail !== undefined && (detail as { type?: string }).type !== "unknown";
 
-/** Paseo 0.9 folds a tool call's updates into the call and a run of text chunks into one message (`timeline-projection.ts`). */
+/** Paseo 0.10 folds a tool call's updates into the call and a run of text chunks into one message (`timeline-projection.ts`). */
 function project(rows: Row[]): Entry[] {
   const entries: Entry[] = [];
   const calls = new Map<string, Entry>();
