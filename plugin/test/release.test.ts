@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { assertPluginCompatibility } from "@getpaseo/protocol/plugin-requirements";
 
 const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -54,3 +55,15 @@ test(
       );
   },
 );
+
+/** Checked as Paseo's daemon and app check a plugin before loading it, with the SDK's own check. */
+test("Paseo 0.10.2 and a later 0.10 load the plugin, and Paseo 0.9 refuses it", () => {
+  const { id, requirements } = JSON.parse(readFileSync(join(PLUGIN, "paseo-plugin.json"), "utf-8")) as {
+    id: string;
+    requirements?: { paseo?: string };
+  };
+  const load = (version: string) => () => assertPluginCompatibility({ id, requirements, version, runtime: "daemon" });
+  for (const version of ["0.10.2", "0.10.7"]) assert.doesNotThrow(load(version), `Paseo ${version} loads it`);
+  for (const version of ["0.9.1", "0.9.2"])
+    assert.throws(load(version), /requires Paseo/, `Paseo ${version} refuses it`);
+});
