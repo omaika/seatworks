@@ -70,6 +70,8 @@ class Desk {
   /** The desk's answer to one call; the harness stopping it tells the desk, which mails the answer instead. */
   async call(tool, args, ctx) {
     await this.open();
+    // Stopped before this could listen for it, as a stop read with its call is: the desk never takes the call.
+    if (ctx.mcpReq.signal.aborted) return { ok: false, text: `${tool} was stopped before it reached the desk.` };
     if (this.refused) return { ok: false, text: this.refused };
     if (!this.#line) return { ok: false, text: `The team desk is not running, so ${tool} was not carried out. Do not call it again; end your turn saying which call went unanswered.` };
     const id = String(++this.#seq);

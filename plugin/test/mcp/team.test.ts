@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { type TestContext, test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { Client } from "@modelcontextprotocol/client";
+import { Client, LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import type { z } from "zod";
 import { deskSocket } from "../../server/core/paths.ts";
@@ -22,12 +24,16 @@ type Harness = ReturnType<typeof harness>;
 type Schema = { properties: Record<string, Schema>; items?: Schema; enum?: string[] };
 type Replied = { isError?: boolean; content: { text: string }[] };
 
-/** Resolves once `check` holds, polling while the processes on either end do their part; fails after five seconds. */
-async function until(check: () => boolean | Promise<boolean>, what: string): Promise<void> {
-  for (let tries = 0; !(await check()); tries++) {
-    assert.ok(tries < 250, `never: ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+/**
+ * Resolves once `check` holds, polling while the processes on either end do their part however long load makes that
+ * take; only the test's end stops the wait, and a timeout then fails with the runner's own message, not `what`.
+ */
+async function until(
+  t: Pick<TestContext, "signal">,
+  check: () => boolean | Promise<boolean>,
+  what: string,
+): Promise<void> {
+  while (!(await check())) await sleep(20, undefined, { signal: t.signal }).catch(() => assert.fail(`never: ${what}`));
 }
 
 /** A lane with its Lead, the desk's socket listening as the plugin's start opens it, and the Lead's key bound as Paseo opens it. */
@@ -75,6 +81,36 @@ async function served(t: TestContext, h: Harness, set: string, key: string, env 
   return { client, call, schema };
 }
 
+/** The seat's team server spoken to on its stdin as a harness speaks, so messages sent together arrive in one read. */
+async function piped(t: TestContext, h: Harness, set: string, key: string) {
+  const server = spawn(process.execPath, [TEAM, set, set, deskSocket()], {
+    cwd: h.root,
+    env: { PATH: process.env.PATH ?? "", SEATWORKS_DESK_KEY: key },
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  t.after(() => server.kill());
+  const replies = new Map<number, Replied>();
+  createInterface({ input: server.stdout }).on("line", (text) => {
+    const said = JSON.parse(text) as { id?: number; result?: Replied };
+    if (said.id !== undefined && said.result) replies.set(said.id, said.result);
+  });
+  const send = (...messages: object[]) =>
+    server.stdin.write(messages.map((message) => `${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`).join(""));
+  const reply = async (id: number) => {
+    await until(t, () => replies.has(id), `the reply to request ${id}`);
+    return replies.get(id)!;
+  };
+  const clientInfo = { name: "probe", version: "0" };
+  send({
+    id: 0,
+    method: "initialize",
+    params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo },
+  });
+  await reply(0);
+  send({ method: "notifications/initialized" });
+  return { send, reply };
+}
+
 /** A line to the desk spoken on directly, as a seat's server speaks: what it heard, and a way to say something. */
 async function line(t: TestContext, h: Harness, key: string, role: string) {
   const socket = connect(deskSocket());
@@ -84,7 +120,7 @@ async function line(t: TestContext, h: Harness, key: string, role: string) {
   createInterface({ input: socket }).on("line", (text) => heard.push(JSON.parse(text) as { type: string }));
   const say = (message: object) => socket.write(`${JSON.stringify(message)}\n`);
   say({ type: "hello", key, role, cwd: h.root });
-  await until(() => heard.length > 0, "the desk answers the hello");
+  await until(t, () => heard.length > 0, "the desk answers the hello");
   return { socket, heard, say, types: () => heard.map((said) => said.type) };
 }
 
@@ -116,7 +152,7 @@ test("a seat's harness is shown its tools with the desk's choices, and its calls
     "each tool's title and what it changes",
   );
   // The desk's choices come with the first list, or as a changed list soon after when the desk is slow to say them.
-  await until(async () => ((await seat.schema("note")).properties.kind!.enum ?? []).length > 0, "choices shown");
+  await until(t, async () => ((await seat.schema("note")).properties.kind!.enum ?? []).length > 0, "choices shown");
   const fields = (await seat.schema("add_tasks")).properties.tasks!.items!.properties;
   assert.deepEqual(fields.role!.enum, ["peer"], "the desk's choices as enums");
   assert.ok(fields.skills!.items!.enum!.includes("test-first"), "a list takes the set for its items");
@@ -126,7 +162,7 @@ test("a seat's harness is shown its tools with the desk's choices, and its calls
   const added = await seat.call("add_tasks", { tasks: [task] });
   assert.equal(added.isError, false, added.content[0]!.text);
   assert.ok(h.ledger().tasks["L1-T1"]!.peer, "carried out as the Lead the key belongs to");
-  await until(() => !socket.calling(lead), "the harness took the answer, so no mail waits on the call");
+  await until(t, () => !socket.calling(lead), "the harness took the answer, so no mail waits on the call");
   assert.equal((await seat.call("accept", { task: "L9-T9" })).isError, true, "a refusal is marked an error");
   await assert.rejects(seat.client.callTool({ name: "no_such_tool", arguments: {} }), "the protocol's own error");
 });
@@ -147,7 +183,7 @@ test("a call its harness stops, or whose line drops, is answered by mail, and th
   const long = seat.call("report", ready, {
     onprogress: (note: { message?: string }) => notes.push(note.message ?? ""),
   });
-  await until(() => notes.length > 1, "a harness that asked for progress hears that a long call still runs");
+  await until(t, () => notes.length > 1, "a harness that asked for progress hears that a long call still runs");
   gate.release();
   await long;
   assert.ok(
@@ -158,17 +194,19 @@ test("a call its harness stops, or whose line drops, is answered by mail, and th
   gate = await gated();
   const stopping = new AbortController();
   const stopped = seat.call("report", ready, { signal: stopping.signal });
-  await until(() => socket.calling(lead), "the call reaches the desk");
+  // Its own gate, not `calling`, which the call before keeps until its `taken` arrives: stopped before the desk takes
+  // it, a call is never carried out, and no answer is mailed.
+  await until(t, gate.running, "the call is held in its gate");
   stopping.abort();
   await assert.rejects(stopped);
-  await until(() => !socket.calling(lead), "the desk hears it was stopped");
+  await until(t, () => !socket.calling(lead), "the desk hears it was stopped");
   gate.release();
-  await until(() => /ANSWER to your report call/.test(letters()), "the answer is mailed once it comes");
+  await until(t, () => /ANSWER to your report call/.test(letters()), "the answer is mailed once it comes");
   assert.match(letters(), /ANSWER to your report call, which was stopped on your side before its answer reached you\./);
 
   gate = await gated();
   const dropping = seat.call("report", { summary: "done again", ready: true });
-  await until(() => socket.calling(lead), "the call reaches the desk");
+  await until(t, gate.running, "the call is held in its gate");
   socket.close();
   const dropped = await dropping;
   assert.equal(dropped.isError, true);
@@ -176,9 +214,11 @@ test("a call its harness stops, or whose line drops, is answered by mail, and th
     dropped.content[0]!.text,
     "The line to the team desk dropped while report ran, so its answer did not come back here. If the desk took the call, its answer comes as mail: look before calling report again, since a second call may do it twice.",
   );
-  assert.equal(socket.calling(lead), false);
+  // The seat's server can hear the line drop before the desk's own end has closed: the desk lets the call go then.
+  await until(t, () => !socket.calling(lead), "the desk lets go of the call on the dropped line");
   gate.release();
   await until(
+    t,
     () => letters().match(/ANSWER to your report call/g)?.length === 2,
     "the dropped call's answer is mailed",
   );
@@ -187,12 +227,30 @@ test("a call its harness stops, or whose line drops, is answered by mail, and th
 
   const raw = await line(t, h, "k-lead", "lead");
   raw.say({ type: "call", id: "1", tool: "status", args: {} });
-  await until(() => raw.types().includes("result"), "answered on the line");
+  await until(t, () => raw.types().includes("result"), "answered on the line");
   raw.socket.destroy();
   await until(
+    t,
     () => /ANSWER to your status call/.test(letters()),
     "answered and never taken, it is mailed once the line drops",
   );
+});
+
+test("a call its harness stops in the same breath as it makes it is never carried out", async (t) => {
+  const { h, sup, lead, socket } = await lineUp(t);
+  const gate = heldGate(t);
+  await h.call(sup, "supervisor", "set_project", { gate: gate.command, gateOn: "lane" });
+  const seat = await piped(t, h, "lead", "k-lead");
+  // One read: the harness's stop aborts the call before the seat's server is listening for a stop.
+  seat.send(
+    { id: 1, method: "tools/call", params: { name: "report", arguments: { summary: "done", ready: true } } },
+    { method: "notifications/cancelled", params: { requestId: 1, reason: "stopped" } },
+  );
+  seat.send({ id: 2, method: "tools/call", params: { name: "status", arguments: {} } });
+  assert.equal((await seat.reply(2)).isError, false, "the next call is answered");
+  // A report the desk took holds the line in its gate; one it never took leaves the line once status is taken.
+  await until(t, () => gate.running() || !socket.calling(lead), "the desk takes the report or is left with no call");
+  assert.equal(gate.running(), false, "the desk never took the stopped call, so no answer to it is lost");
 });
 
 test("new choices reach a harness as a changed tool list, only where its set changed", async (t) => {
@@ -205,6 +263,7 @@ test("new choices reach a harness as a changed tool list, only where its set cha
   const skills = async () =>
     (await seat.schema("add_tasks")).properties.tasks!.items!.properties.skills!.items!.enum ?? [];
   await until(
+    t,
     async () => (await skills()).includes("ide-index-mcp"),
     "Peers have the IDE server, so its skill is a choice",
   );
@@ -218,11 +277,11 @@ test("new choices reach a harness as a changed tool list, only where its set cha
   };
   await save({ attention: { reworksAt: 4 } });
   await save({ mcp: { "intellij-index": { enabled: false } } });
-  await until(() => leadLine.heard.length > 1, "the change reaches the Lead's line");
+  await until(t, () => leadLine.heard.length > 1, "the change reaches the Lead's line");
   assert.deepEqual(leadLine.types(), ["welcome", "choices"], "a save that changes no choice sends nothing");
-  await until(() => told > 0, "the Lead's harness is told the list changed");
+  await until(t, () => told > 0, "the Lead's harness is told the list changed");
   assert.equal((await skills()).includes("ide-index-mcp"), false, "without the server, its skill is no choice");
   peerLine.say({ type: "call", id: "1", tool: "ask", args: {} });
-  await until(() => peerLine.types().includes("result"), "the Peer's line answers");
+  await until(t, () => peerLine.types().includes("result"), "the Peer's line answers");
   assert.deepEqual(peerLine.types(), ["welcome", "result"], "a line whose set did not change is sent nothing");
 });
