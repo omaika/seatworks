@@ -3,7 +3,7 @@ import { weakened } from "../../catalog/kit/ecosystem-patterns.ts";
 import { covers, normalize } from "../../core/scope.ts";
 import { oneLine } from "../../core/text.ts";
 import { type Fact, fact } from "../../domain/incident.ts";
-import { commandMask } from "./command-digest.ts";
+import { commandDigest } from "./command-digest.ts";
 import type { Call, Unit } from "./window.ts";
 
 /**
@@ -383,8 +383,9 @@ export class Evasion {
     if (!scripted && !(WRAPPED.test(command) && command.includes(was))) return [];
     this.refused = undefined;
     // A noise mark on one re-run must not settle another that differs past its quote.
-    const { digest } = commandMask(rules.secretString);
-    return [fact("guard", `ran \`${was}\` through \`${oneLine(command, 100)}\` after it was refused`, digest(command))];
+    return [
+      fact("guard", `ran \`${was}\` through \`${oneLine(command, 100)}\` after it was refused`, commandDigest(command)),
+    ];
   }
 
   reset(): void {
