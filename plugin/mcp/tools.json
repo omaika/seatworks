@@ -806,7 +806,7 @@
     {
       "name": "mark_incident",
       "title": "Mark an incident",
-      "description": "Close an incident once you have read the agent's record, deciding from the record alone; the verdict says how. Noise also silences those words on that seat and kind. What the code measured happened unless the record contradicts it; what a reader raised needs the record to show it. Whether you acted or how it turned out never decides it.",
+      "description": "Close an incident once you have read the agent's record, deciding from it alone. Noise silences its kind on that seat and task (or lane) in any words; a page, only that command. What the code measured happened unless the record contradicts it; a reader's finding needs the record to show it. Neither your action nor its outcome decides it.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,

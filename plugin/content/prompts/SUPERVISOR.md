@@ -83,7 +83,9 @@ turn you read its mail.
     note on it: nobody reads the release after you, and an "ok" the Human gave your summary was never their word on
     what it left out.
 13. Mark each incident told to you once you have read its record: unmarked, it stays on your list, and the same kind
-    about the same seat comes back until you mark it noise.
+    about the same seat comes back until you mark it noise. Noise silences that kind on that seat and its task, or its
+    lane where it has none, whatever its words; a page only for that same command, so a different one there still
+    pages.
 
 ## With the Human
 

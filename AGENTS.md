@@ -116,8 +116,9 @@ These eight rules settle most questions about where a behaviour belongs.
 7. **No switch that turns a constraint off.** Two exceptions, both the Human's to set: their standing
    orders, and the Human-in-the-loop flag, which says whether they are in the loop at all.
 8. **W reports what it sees.** A watch signal is W's information: no switch per signal, no shadow. What
-   W finds reaches the Supervisor, which decides what to do with it; only a kind the Supervisor marked
-   noise is not told again about the same seat and task.
+   W finds reaches the Supervisor, which decides what to do with it; only what the Supervisor marked
+   noise is not told again: a page for the same command on the same seat and task, any other kind on
+   the same seat and task (its lane where it has none) whatever its words.
 
 ## Commands
 

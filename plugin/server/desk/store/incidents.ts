@@ -52,12 +52,12 @@ export function saidBefore(incidents: Incidents, seat: string, kind: string, quo
 const episode = (item: { task?: string; lane?: string }) => item.task ?? item.lane;
 
 /**
- * Already settled as noise on this seat: counts the sighting and answers true. `mark_incident` closes an incident, so a
- * standing condition would reopen after every mark. A code fact settles in these exact words; a brain's reading, whose
- * words are new at every look, for the seat's task or lane. Each eye's marks settle only its own. Only `attend` settles.
+ * Already settled as noise: counts the sighting and answers true. `mark_incident` closes an incident, so a standing
+ * condition would reopen after every mark. A mark settles its kind on that seat and task, or lane where there is no
+ * task, in whatever words; a page only for the command it was told, since another may be the dangerous one. Each eye's
+ * marks settle only its own.
  */
 export function settledAsNoise(incidents: Incidents, sighting: Sighting, now: number): boolean {
-  if (sighting.level === "page") return false;
   const brain = Boolean(sighting.brain);
   const marked = Object.values(incidents.items).find(
     (item) =>
@@ -66,7 +66,8 @@ export function settledAsNoise(incidents: Incidents, sighting: Sighting, now: nu
       item.seat === sighting.seat &&
       item.kind === sighting.kind &&
       Boolean(item.brain) === brain &&
-      (brain ? episode(item) === episode(sighting) : item.quote === sighting.quote),
+      episode(item) === episode(sighting) &&
+      (sighting.level !== "page" || item.quote === sighting.quote),
   );
   if (!marked) return false;
   marked.count += 1;
@@ -96,9 +97,11 @@ export function closeSeat(incidents: Incidents, seat: string, now: number): stri
   return closed;
 }
 
+/** Trims the oldest closed incidents past `kept`, by when last seen or closed: a noise mark still settling goes last. */
 export function forget(incidents: Incidents, kept: number): void {
+  const since = (item: Incident) => Math.max(item.closed ?? 0, item.last);
   const done = Object.values(incidents.items)
     .filter((item) => !item.open)
-    .sort((a, b) => (a.closed ?? a.last) - (b.closed ?? b.last));
+    .sort((a, b) => since(a) - since(b));
   for (const item of done.slice(0, Math.max(0, done.length - kept))) delete incidents.items[item.id];
 }

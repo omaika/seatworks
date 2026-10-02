@@ -134,8 +134,8 @@ test("a lane's own record raises an incident about its Lead once, held while the
 
   const marked = await h.call(sup, "supervisor", "mark_incident", {
     id: first!.id,
-    verdict: "noise",
-    note: "expected: the brief changed under it",
+    verdict: "useful",
+    note: "the Peer kept missing the same acceptance line",
   });
   assert.equal(marked.ok, true, marked.text + JSON.stringify(book(h)));
   await h.tick();
@@ -143,9 +143,9 @@ test("a lane's own record raises an incident about its Lead once, held while the
   assert.equal(loops().length, 1, "the same three sendings-back are not raised again once marked");
   await rework(4);
   await h.tick();
-  assert.equal(loops().length, 2, "a fourth sending-back is something new to say");
+  assert.equal(loops().length, 2, "a fourth sending-back is something new to say, unless the first was marked noise");
 
-  assert.equal((await h.call(sup, "supervisor", "mark_incident", { id: loops()[1]!.id, verdict: "noise" })).ok, true);
+  assert.equal((await h.call(sup, "supervisor", "mark_incident", { id: loops()[1]!.id, verdict: "useful" })).ok, true);
   await rework(5);
   h.agents.get(lead)!.archivedAt = new Date().toISOString();
   await h.tick();

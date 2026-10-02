@@ -69,13 +69,13 @@ export function listIncidents(caller: Caller, withClosed: boolean): ToolReply {
   if (waiting.length > 0)
     lines.push(
       "",
-      "Each is a signal to look at, not a verdict. Mark each one with mark_incident once you have looked at the agent's record: a mark of noise keeps the same thing on that seat from coming back to you.",
+      "Each is a signal to look at, not a verdict. Mark each one with mark_incident once you have looked at the agent's record: a mark of noise keeps that kind on that seat and its task, or its lane where it has none, from coming back to you in any words; a page, only for that same command.",
     );
   recordEvent(caller.project, { kind: "incident.read", agent: caller.id, waiting: waiting.length });
   return ok(lines.join("\n"));
 }
 
-/** Marks an incident the caller may see as useful, noise or unknown, and closes it: noise settles its repeats on that seat. */
+/** Marks an incident the caller may see as useful, noise or unknown, and closes it: noise settles its kind on that seat and task, a page only for that command. */
 export function markIncident(
   { incidents }: Pick<DeskServices, "incidents">,
   caller: Caller,

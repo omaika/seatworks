@@ -231,6 +231,7 @@ export class Patrol {
       const idle = now - Date.parse(lead.updatedAt);
       if (idle < leadIdleMinutes * 60_000 || this.idleFlag.get(lead.id) === lead.updatedAt) continue;
       if (activeTasks(ledger, lane.id).length > 0 || openAsksFrom(ledger, lead.id).length > 0) continue;
+      if (lane.audit && !landedSince(ledger, lane, Date.parse(lead.updatedAt))) continue;
       // Once per idle spell; the incident book holds it while nobody is seated to tell, and tells it when it may.
       this.idleFlag.set(lead.id, lead.updatedAt);
       const ending = (turns.lastEnding.get(lead.id) ?? "").replace(/\s+/g, " ").trim().slice(0, 400);
@@ -290,6 +291,13 @@ export class Patrol {
       ),
     );
   }
+}
+
+/** An audit lane waits by design for the next landing on its base, so it idles only on one landed after its Lead last moved. */
+function landedSince(ledger: Ledger, audit: Lane, since: number): boolean {
+  return Object.values(ledger.lanes).some(
+    (other) => other.landed && !other.onBranch && other.base === audit.base && (other.closedAt ?? 0) > since,
+  );
 }
 
 /** Keeps a project's marks only while what they mark still stands, so marks for work long settled do not pile up. */
