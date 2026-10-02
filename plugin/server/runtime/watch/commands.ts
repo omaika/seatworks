@@ -542,9 +542,11 @@ export function onDetail(call: Call, rules: Rules): Fact[] {
   const secrets = new RegExp(rules.secretString.source, `${rules.secretString.flags.replace("g", "")}g`);
   const quote = (text: string, pattern?: RegExp) => around(oneLine(text.replace(secrets, "…"), Infinity), pattern, 200);
   const found: Fact[] = [];
+  // "The same command" is the whole line as run, though each command in it is read on its own.
+  const whole = commandDigest(source);
   try {
     // A command at a time: removing a commit message's temp file once paged a Lead.
-    readAll(commandsIn(source, 0).commands, rules, quote, found, 0, REREAD * source.length);
+    readAll(commandsIn(source, 0).commands, rules, { quote, whole, found }, 0, REREAD * source.length);
   } catch (error) {
     if (!(error instanceof OutOfReach)) throw error;
     // Past what the reader follows: the raw text is read too, cut where a command may end, so what it holds still pages.
@@ -552,30 +554,30 @@ export function onDetail(call: Call, rules: Rules): Fact[] {
       .split(RAW_SEPARATORS)
       .map((text) => ({ text, unquoted: text, then: undefined, holds: [], heredocs: [] }));
     const more: Fact[] = [];
-    readAll(raw, rules, quote, more, DEEPEST, 0);
+    readAll(raw, rules, { quote, whole, found: more }, DEEPEST, 0);
     found.push(...more.filter((one) => !found.some((seen) => seen.kind === one.kind)));
   }
   if (rules.secretString.test(source) && !found.some((seen) => seen.kind === "secret"))
-    found.push(fact("secret", `a string shaped like a secret in ${quote(source)}`, commandDigest(source)));
+    found.push(fact("secret", `a string shaped like a secret in ${quote(source)}`, whole));
   return found;
 }
 
 function readAll(
   commands: Command[],
   rules: Rules,
-  quote: Reading["quote"],
-  found: Fact[],
+  line: Pick<Reading, "quote" | "whole" | "found">,
   depth: number,
   budget: number,
 ): void {
   const scratch = scratchIn(madeBy(commands.map((command) => command.text)), rules);
-  read(commands, "start", { rules, scratch, quote, found, budget }, depth);
+  read(commands, "start", { ...line, rules, scratch, budget }, depth);
 }
 
 type Reading = {
   rules: Rules;
   scratch: (path: string) => boolean;
   quote: (text: string, pattern?: RegExp) => string;
+  whole: string;
   found: Fact[];
   budget: number;
 };
@@ -585,7 +587,7 @@ type Reading = {
  * shell reads or expands, code it hands a shell, and commands an interpreter's code shells out to.
  */
 function read(commands: Command[], at: At, reading: Reading, depth: number): void {
-  const { rules, scratch, quote, found } = reading;
+  const { rules, scratch, quote, whole, found } = reading;
   for (const command of commands) {
     let { text, unquoted } = command;
     let words = shellWords(text);
@@ -601,7 +603,6 @@ function read(commands: Command[], at: At, reading: Reading, depth: number): voi
     }
     const programs = pipeline(text, unquoted);
     const quoted = quote(text);
-    const whole = commandDigest(text);
     if (touchesSecret(shellTokens(text), unquoted, rules)) found.push(fact("secret", quoted, whole));
     if ((rules.boundary.test(unquoted) && !onlyLocal(words, rules)) || runsOutside(programs, rules, scratch))
       found.push(fact("boundary", quoted, whole));
