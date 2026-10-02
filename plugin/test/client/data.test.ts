@@ -166,6 +166,9 @@ test("with Jev off on the machine, its key row is offered as optional and warns 
     assert.match(said.label, /optional/i, `${kept ? "kept" : "no key"}: the field says it is optional`);
     assert.match(said.hint, /only when a project turns Jev on/, `${kept ? "kept" : "no key"}: and when it is needed`);
   }
+  const [missing, kept] = [words(team.attention, false), words(team.attention, true)];
+  assert.equal(missing.label, kept.label, "no key: the field is named as when one is kept");
+  assert.ok(kept.hint.includes(missing.hint), `no key: nothing said of the missing key\n${missing.hint}`);
   const reading = words({ brain: "sensor", sensor: "jev" }, false);
   assert.doesNotMatch(reading.label, /optional/i, "a key the machine's own watch asks with is not called optional");
 });

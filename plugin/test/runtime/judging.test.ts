@@ -408,7 +408,7 @@ test('a hand-written review sensor of "" or null leaves its layer read: the key 
   }
 });
 
-test("review set Off asks no sensor at a moment, a hand-back or a Reviewer's verdict, keeps nothing, and the last layer to choose wins", async () => {
+test("review set Off asks no sensor at a moment, a hand-back or a Reviewer's verdict, keeps nothing, leaves the watch asking Jev, and the last layer to choose wins", async () => {
   const { make } = sensor({ summary_admits_gap: 0.9, asked_for: 0.1 });
   let made = 0;
   const counted = (spec: SensorSpec, key: string) => (made++, make(spec, key));
@@ -492,6 +492,28 @@ test("review set Off asks no sensor at a moment, a hand-back or a Reviewer's ver
     [made, kept(h.project.state).length],
     [asked, lines],
     "a project set Off wins over a machine naming the sensor",
+  );
+
+  judgedBy("sensor", KEY);
+  await choose("off");
+  await choose(undefined, h.project.slug);
+  await work();
+  turn(timeline, "thinks", "Go on.", "message");
+  timeline.add({ type: "reasoning", text: "The rounding is next." }, "thinks");
+  timeline.beat("turn_completed", "thinks");
+  await settle();
+  await settle();
+  const flow = await h.rpc(contracts.flow, { project: h.project.slug });
+  assert.ok("watch" in flow);
+  assert.deepEqual(
+    [flow.watch.judge.label, flow.watch.judge.state, made > asked],
+    ["Jev", "answering", true],
+    "the watch still asks Jev with review Off",
+  );
+  assert.deepEqual(
+    [kept(h.project.state).length, h.events("review.unasked")],
+    [lines, []],
+    "while review asks it nothing",
   );
 });
 

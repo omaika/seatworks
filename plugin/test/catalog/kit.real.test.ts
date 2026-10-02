@@ -169,6 +169,30 @@ test(
   },
 );
 
+test(
+  "on Windows a seat of every role keeps every rule its role has on macOS, so only its sandbox differs",
+  // Taken as macOS, a real Windows host would be asked for symlinks its ordinary account may not make.
+  { skip: process.platform === "win32" && "a POSIX seat build needs POSIX links" },
+  (t) => {
+    const home = tempDir("sw2-win-rules-");
+    const sandboxKey = { claude: "sandbox", codex: "windows" } as Record<string, keyof SeatSettings>;
+    const built = (platform: NodeJS.Platform) => {
+      onPlatform(t, platform);
+      return new Map(
+        seatsOnEveryRole(home).map(({ name, harness, settings }) => {
+          if (harness === "claude")
+            assert.ok(settings.permissions?.deny, `${name} on ${platform} carries its role's rules`);
+          return [name, { ...settings, [sandboxKey[harness]!]: undefined }];
+        }),
+      );
+    };
+    const onMac = built("darwin");
+    const onWindows = built("win32");
+    assert.deepEqual([...onWindows.keys()], [...onMac.keys()]);
+    for (const [name, settings] of onWindows) assert.deepEqual(settings, onMac.get(name), `${name} on Windows`);
+  },
+);
+
 test("nothing a seat or its guides lead it to read resolves into a git repository", async () => {
   const kit = loadKit(PLUGIN);
   const home = tempDir("sw2-outside-home-");
