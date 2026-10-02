@@ -845,6 +845,48 @@
       "command": "cat ~/.*/config"
     },
     {
+      "fact": "secret",
+      "expect": false,
+      "source": "L32: `${…}` is a variable's, whatever commas it holds, not a brace to expand",
+      "command": "cat ${f,/.env}"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L32: a shell glob matches a leading dot only when it spells the dot",
+      "command": "cat *env"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L32: a bracket negated with `!` matches what it does not list",
+      "command": "cat id_[!x]sa"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L32: a bracket negated with `^` matches what it does not list",
+      "command": "cat id_[^x]sa"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L32: a bracket range matches the characters between its ends",
+      "command": "cat id_[q-s]sa"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L32: a quoted `*` is a pattern's own, which the shell does not glob",
+      "command": "grep -rn 'id_*' docs"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L32: a glob that matches the secret files a pattern's escaped class spells",
+      "command": "cat .env.*"
+    },
+    {
       "fact": "boundary",
       "expect": true,
       "source": "synthetic",
