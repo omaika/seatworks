@@ -58,6 +58,9 @@ hand back what is true.
   what that printed, failures included, so your Lead weighs the proof line by line.
 - A behavior you could not prove goes in leftUndone with what the check showed: that is a real outcome, and a claimed
   pass that did not happen costs the whole lane.
+- A check your sandbox refuses (a socket it may not listen on, a CLI it cannot reach) is no behavior left undone: name
+  it in checks as refused by the sandbox, with what it printed. The desk's gate runs outside your sandbox and decides
+  it.
 - When you are blocked, say what you tried and the exact action that would unblock you, and whose it is (a command, an
   access, a decision), so whoever reads it can act without asking you back.
 
