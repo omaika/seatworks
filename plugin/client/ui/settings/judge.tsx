@@ -6,6 +6,7 @@ import { KEPT, type Layer } from "../../../shared/settings.ts";
 import type { CatalogView, TeamView } from "../../../shared/views.ts";
 import { sourceLabel } from "./source.ts";
 import { setAttention, sourceOf, withKey } from "../../model/layer.ts";
+import { type KeyDrafts, keyWords, watchKeyLine } from "../../model/key-rows.ts";
 import { Rows } from "../kit/card.tsx";
 import { TabBar } from "../kit/tab-bar.tsx";
 import { FONT, SPACE } from "../kit/theme.ts";
@@ -38,11 +39,16 @@ export function keyRows(
     disabled,
     save,
     role,
-  }: Pick<Props, "values" | "machine" | "layer" | "theme" | "disabled" | "save" | "role"> & { sensor: Sensor },
+    asked,
+  }: Pick<Props, "values" | "machine" | "layer" | "theme" | "disabled" | "save" | "role"> & {
+    sensor: Sensor;
+    asked: boolean;
+  },
   { typed, setDraft, field }: Draft,
   asks: string,
 ): ReactElement[] {
   const kept = values.sensor?.[sensor.id]?.key === KEPT || machine.sensor?.[sensor.id]?.key === KEPT;
+  const words = keyWords(sensor, { asked, kept, layer, role: role.label });
   const write = (key: string | null) => {
     void save((current) => withKey(current, sensor.id, key)).then((saved) => {
       // The typed key is the owner's only copy, so it is cleared only once saved.
@@ -58,13 +64,11 @@ export function keyRows(
   );
   if (layer === "project") {
     return [
-      <SettingsRow
-        key={`${sensor.id}:key`}
-        label={sensor.key}
-        hint={`Kept on this machine for every project. Add, replace or forget it under Machine defaults, on the ${role.label}.`}
-      >
-        <Text style={{ color: kept ? theme.colors.foreground : theme.colors.statusWarning, fontSize: 14 }}>
-          {kept ? "set" : "not set"}
+      <SettingsRow key={`${sensor.id}:key`} label={words.label} hint={words.hint}>
+        <Text
+          style={{ color: words.status?.warn ? theme.colors.statusWarning : theme.colors.foreground, fontSize: 14 }}
+        >
+          {words.status?.text}
         </Text>
       </SettingsRow>,
       model,
@@ -74,12 +78,8 @@ export function keyRows(
     <SettingsInput
       key={`${sensor.id}:key`}
       ref={field}
-      label={sensor.key}
-      hint={
-        kept
-          ? "Kept on this machine and never shown again. Type another to replace it."
-          : `${sensor.label} asks nothing without one.`
-      }
+      label={words.label}
+      hint={words.hint}
       secureTextEntry
       onChangeText={setDraft}
       disabled={disabled}
@@ -111,7 +111,7 @@ export function keyRows(
 /** Inside a judging role's line: which brains read what the watch sees, then the sensor's key and this seat's agent. */
 export function JudgeRows(props: Props) {
   const { catalog, team, values, machine, layer, theme, disabled, role, rows, save } = props;
-  const [draft, setDraft] = useState("");
+  const [held, setHeld] = useState<KeyDrafts>({});
   const field = useRef<SettingsInputHandle>(null);
   const { brain } = team.attention;
   const sensor = catalog.sensors.find((entry) => entry.id === team.attention.sensor);
@@ -122,8 +122,9 @@ export function JudgeRows(props: Props) {
     { id: "seat", label: `${role.label} seat` },
     { id: "both", label: "Both" },
   ];
-  const reads = brain === "sensor" || brain === "both";
   const judges = brain === "seat" || brain === "both";
+  const { rows: keyed, drafts } = watchKeyLine(catalog.sensors, team.attention, held);
+  if (drafts !== held) setHeld(drafts);
   const note = judges
     ? `One ${role.label} per project, seated under the Supervisor when it first has something to judge, and let go once no lane is open.${brain === "both" ? ` It judges only what ${named} flags or leaves unsure.` : ""}`
     : `No ${role.label} is seated. What is set for the ${role.label} seat is kept for when it judges again.`;
@@ -144,13 +145,17 @@ export function JudgeRows(props: Props) {
           tabs={options}
         />
       </SettingsRow>
-      {reads && sensor
-        ? keyRows(
-            { ...props, sensor },
-            { typed: draft.trim(), setDraft, field },
-            "one at each moment the watch asks about",
-          )
-        : null}
+      {keyed.flatMap(({ sensor, asked }) =>
+        keyRows(
+          { ...props, sensor, asked },
+          {
+            typed: (drafts[sensor.id] ?? "").trim(),
+            setDraft: (typed) => setHeld({ [sensor.id]: typed }),
+            field,
+          },
+          "one at each moment the watch asks about",
+        ),
+      )}
       {judges ? rows : null}
       <Text style={{ color: theme.colors.foregroundMuted, fontSize: FONT.small, padding: SPACE.lg }}>{note}</Text>
     </Rows>

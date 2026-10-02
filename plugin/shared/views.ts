@@ -58,6 +58,7 @@ export const CatalogView = z.object({
   sensors: z.array(
     z.object({ id: z.string(), label: z.string(), key: z.string(), model: z.string(), terms: z.string() }),
   ),
+  kitSensor: z.string().nullable(),
 });
 export type CatalogView = z.infer<typeof CatalogView>;
 

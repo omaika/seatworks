@@ -9,14 +9,18 @@ import {
   modelRow,
   setLanguage,
   nextSeat,
-  reviewKeySensors,
+  reviewOptions,
   setLevelSeat,
   setReviewSensor,
   setRole,
   withKey,
 } from "../../client/model/layer.ts";
 import type { FlowLane, WatchJudge } from "../../shared/flow-views.ts";
+import type { TeamView } from "../../shared/views.ts";
+import { keyWords, reviewLine, watchKeyLine } from "../../client/model/key-rows.ts";
 import { TIMELINE } from "../../shared/timeline-items.ts";
+import { resolveTeam } from "../../server/catalog/team/team.ts";
+import { makeKit } from "../kit.ts";
 
 const docs = {
   enabled: true,
@@ -90,20 +94,125 @@ test("a panel edit changes only what it names and keeps the rest of the layer", 
   for (const [what, edit, edited] of EDITS) assert.deepEqual(edit(held), edited, what);
 });
 
+test("a key typed for the watch's sensor is gone once its row goes, and does not come back with it", () => {
+  const sensors = [{ id: "jev" }, { id: "other" }];
+  const reading: TeamView["attention"] = { brain: "sensor", sensor: "jev" };
+  const typed = { jev: "jev-key" };
+  const ids = (line: ReturnType<typeof watchKeyLine>) => line.rows.map((row) => row.sensor.id);
+  const rows: [TeamView["attention"]["brain"], string[]][] = [
+    ["off", []],
+    ["seat", []],
+    ["sensor", ["jev"]],
+    ["both", ["jev"]],
+  ];
+  for (const [brain, keyed] of rows)
+    assert.deepEqual(ids(watchKeyLine(sensors, { brain, sensor: "jev" }, {})), keyed, `brains ${brain}`);
+  assert.equal(watchKeyLine(sensors, reading, typed).drafts, typed, "kept while its own sensor's row shows");
+  const moved = watchKeyLine(sensors, { brain: "sensor", sensor: "other" }, typed).drafts;
+  assert.deepEqual(moved, {}, "never left for another sensor's Save");
+  assert.deepEqual(watchKeyLine(sensors, { brain: "seat", sensor: "jev" }, typed).drafts, {}, "dropped with its row");
+  assert.deepEqual(watchKeyLine(sensors, reading, moved).drafts, {}, "not brought back when the first sensor returns");
+});
+
 test("review's line offers a key row wherever a project's review could ask with it, and none where nothing asks", () => {
   const sensors = [{ id: "jev" }, { id: "other" }];
-  const rows: [string, string | undefined, "machine" | "project", string[]][] = [
-    ["machine Off still offers every key a project may name", REVIEW_OFF, "machine", ["jev", "other"]],
-    ["a project naming one under machine Off shows that one's", "jev", "project", ["jev"]],
-    ["a project that names none under machine Off asks nothing, so no key row warns", REVIEW_OFF, "project", []],
-    ["no choice falls to the kit's sensor", undefined, "machine", ["other"]],
+  const team = { review: { sensor: "other" }, attention: { brain: "seat", sensor: "jev" } } as const;
+  const off: Layer = { review: { sensor: REVIEW_OFF } };
+  const rows: [string, Layer, Layer, "machine" | "project", string[]][] = [
+    ["machine Off still offers every key a project may name", off, {}, "machine", ["jev", "other"]],
+    ["a project naming one under machine Off shows that one's", { review: { sensor: "jev" } }, off, "project", ["jev"]],
+    ["a project that names none under machine Off asks nothing, so no key row warns", {}, off, "project", []],
+    ["no choice falls to the sensor review resolves to", {}, {}, "machine", ["other"]],
   ];
-  for (const [what, chosen, layer, offered] of rows)
+  for (const [what, values, machine, layer, offered] of rows)
     assert.deepEqual(
-      reviewKeySensors(sensors, chosen, "other", layer).map((entry) => entry.id),
+      reviewLine(sensors, team, values, machine, layer, {}).rows.map((row) => row.sensor.id),
       offered,
       what,
     );
+});
+
+test("review's select shows only what its own page picked, so the machine's Off is never shown as a project's choice", () => {
+  const sensors = [{ id: "jev" }];
+  const team = { review: { sensor: null }, attention: { brain: "seat", sensor: "jev" } } as const;
+  const off: Layer = { review: { sensor: REVIEW_OFF } };
+  assert.equal(reviewLine(sensors, team, {}, off, "project", {}).value, "", "inherited Off shows as the empty choice");
+  assert.equal(reviewLine(sensors, team, off, {}, "machine", {}).value, REVIEW_OFF, "Off picked here shows as Off");
+});
+
+test("a key typed on review's line goes with its row, so a sensor that comes back shows no hidden key to save", () => {
+  const sensors = [{ id: "jev" }, { id: "other" }];
+  const team = { review: { sensor: "jev" }, attention: { brain: "seat", sensor: "jev" } } as const;
+  const off: Layer = { review: { sensor: REVIEW_OFF } };
+  const typed = { jev: "jev-key", other: "other-key" };
+  assert.equal(reviewLine(sensors, team, off, {}, "machine", typed).drafts, typed, "kept while every row shows");
+  const named = reviewLine(sensors, team, { review: { sensor: "other" } }, {}, "machine", typed).drafts;
+  assert.deepEqual(named, { other: "other-key" }, "a sensor that leaves the line takes its typed key with it");
+  const back = reviewLine(sensors, team, off, {}, "machine", named).drafts;
+  assert.equal(back.jev, undefined, "not brought back when the sensor returns");
+});
+
+test("with Jev off on the machine, its key row is offered as optional and warns of nothing", () => {
+  const jev = { id: "jev", label: "Jev", key: "OpenRouter key" };
+  const off: Layer = { review: { sensor: REVIEW_OFF } };
+  const team = { review: { sensor: null }, attention: { brain: "seat", sensor: "jev" } } as const;
+  const words = (attention: TeamView["attention"], kept: boolean) => {
+    const [row] = reviewLine([jev], { ...team, attention }, off, {}, "machine", {}).rows;
+    return keyWords(row!.sensor, { asked: row!.asked, kept, layer: "machine", role: "Watcher" });
+  };
+  for (const kept of [false, true]) {
+    const said = words(team.attention, kept);
+    assert.equal(said.status, null, `${kept ? "kept" : "no key"}: no status to warn with`);
+    assert.match(said.label, /optional/i, `${kept ? "kept" : "no key"}: the field says it is optional`);
+    assert.match(said.hint, /only when a project turns Jev on/, `${kept ? "kept" : "no key"}: and when it is needed`);
+  }
+  const reading = words({ brain: "sensor", sensor: "jev" }, false);
+  assert.doesNotMatch(reading.label, /optional/i, "a key the machine's own watch asks with is not called optional");
+});
+
+test("review's choice on a page says what its empty choice inherits, and the one picked is what review resolves to", () => {
+  const base = makeKit();
+  const spec = { key: "OpenRouter key", url: "https://x", model: "m", terms: "t", timeoutSeconds: 5, retries: 0 };
+  const kit = {
+    ...base,
+    attention: { ...base.attention, sensor: "jev" },
+    sensors: { jev: { ...spec, id: "jev", label: "Jev" }, other: { ...spec, id: "other", label: "Other" } },
+  };
+  const sensors = Object.values(kit.sensors);
+  const off: Layer = { review: { sensor: REVIEW_OFF } };
+  const rows: [string, Layer, "machine" | "project", string, string, Layer, string][] = [
+    ["machine, nothing chosen", {}, "machine", "As the kit has it: Jev, the kit's sensor", "", {}, "jev"],
+    ["project under the machine's Off", off, "project", "As Machine defaults: Off", "", {}, REVIEW_OFF],
+    [
+      "project naming the kit's sensor under the machine's Off",
+      off,
+      "project",
+      "As Machine defaults: Off",
+      "Jev, the kit's sensor",
+      { review: { sensor: "jev" } },
+      "jev",
+    ],
+    [
+      "project naming another under the machine's Off",
+      off,
+      "project",
+      "As Machine defaults: Off",
+      "Other",
+      { review: { sensor: "other" } },
+      "other",
+    ],
+    ["project turning review Off", {}, "project", "As the kit has it: Jev, the kit's sensor", "Off", off, REVIEW_OFF],
+  ];
+  for (const [what, machine, layer, empty, picked, saved, resolved] of rows) {
+    const options = reviewOptions(sensors, "jev", machine, layer);
+    assert.equal(options[0]!.label, empty, `${what}: the empty choice`);
+    const value = picked ? options.find((option) => option.label === picked)?.value : "";
+    assert.notEqual(value, undefined, `${what}: ${picked} is offered`);
+    const layered = setReviewSensor({}, value || undefined);
+    assert.deepEqual(layered, saved, `${what}: what is saved`);
+    const { review } = resolveTeam(kit, machine, layer === "project" ? layered : {});
+    assert.equal(review.off ? REVIEW_OFF : review.sensor?.id, resolved, `${what}: what review resolves to`);
+  }
 });
 
 test("re-pasting a server the owner gave to nobody leaves it given to nobody", () => {

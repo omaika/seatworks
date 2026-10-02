@@ -107,15 +107,28 @@ export function setReviewSensor(values: Layer, sensor: string | undefined): Laye
   return sensor ? { ...rest, review: { sensor } } : rest;
 }
 
-/** The sensors whose key review's line offers: the one that asks, or with review Off on the machine every one, since a project may still name any. */
-export function reviewKeySensors<S extends { id: string }>(
-  sensors: readonly S[],
-  chosen: string | undefined,
+/** Review's choices on a layer: the empty one named by what it inherits, and the kit's sensor marked, so a project can name it over the machine's Off. */
+export function reviewOptions(
+  sensors: readonly { id: string; label: string }[],
   kits: string | null,
+  machine: Layer,
   layer: "machine" | "project",
-): S[] {
-  if (layer === "machine" && chosen === REVIEW_OFF) return [...sensors];
-  return sensors.filter((entry) => entry.id === (chosen ?? kits));
+): { label: string; value: string }[] {
+  const named = (id: string) =>
+    id === REVIEW_OFF
+      ? "Off"
+      : `${sensors.find((entry) => entry.id === id)?.label ?? id}${id === kits ? ", the kit's sensor" : ""}`;
+  const inherited = layer === "project" ? machine.review?.sensor : undefined;
+  const empty = inherited
+    ? `As Machine defaults: ${named(inherited)}`
+    : kits
+      ? `As the kit has it: ${named(kits)}`
+      : "As the kit has it: none";
+  return [
+    { label: empty, value: "" },
+    ...sensors.map((entry) => ({ label: named(entry.id), value: entry.id })),
+    { label: "Off", value: REVIEW_OFF },
+  ];
 }
 
 /** Emptied, no language is set and the Supervisor answers as its prompt has it. */

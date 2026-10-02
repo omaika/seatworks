@@ -13,12 +13,12 @@ import {
 import { createRef, type ReactElement, type RefObject, useRef, useState } from "react";
 import { Text } from "react-native";
 import { modelsRpc } from "../../../shared/rpc.ts";
-import { type Layer, REVIEW_OFF, type RoleChoice } from "../../../shared/settings.ts";
+import { type Layer, type RoleChoice } from "../../../shared/settings.ts";
 import type { CatalogView, ModelsRefreshed, TeamView } from "../../../shared/views.ts";
 import { message } from "../../format/error.ts";
 import {
   modelRow,
-  reviewKeySensors,
+  reviewOptions,
   setHitl,
   setLanguage,
   setReviewSensor,
@@ -28,6 +28,7 @@ import {
 import { Rows } from "../kit/card.tsx";
 import { DisclosureList } from "../kit/disclosure.tsx";
 import { JudgeRows, keyRows } from "./judge.tsx";
+import { type KeyDrafts, reviewLine } from "../../model/key-rows.ts";
 import { LevelsSection } from "./levels.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import { sourceLabel } from "./source.ts";
@@ -246,18 +247,14 @@ function HitlCard(props: Props) {
 /** Inside a reviewing role's line: which sensor asks review's one-condition checks, apart from the watch's brains. */
 function ReviewRows(props: Props & { role: Role }) {
   const { catalog, team, values, machine, layer, disabled, save } = props;
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [held, setHeld] = useState<KeyDrafts>({});
   const fields = useRef(new Map<string, RefObject<SettingsInputHandle | null>>());
-  const chosen = values.review?.sensor ?? (layer === "project" ? machine.review?.sensor : undefined);
-  const sensors = reviewKeySensors(catalog.sensors, chosen, team.review.sensor, layer);
-  const asks =
-    chosen === REVIEW_OFF
-      ? "one for each check review asks in a project that names it"
-      : "one for each check review asks";
+  const { value, asks, rows, drafts } = reviewLine(catalog.sensors, team, values, machine, layer, held);
+  if (drafts !== held) setHeld(drafts);
   const draftOf = (id: string) => {
     let field = fields.current.get(id);
     if (!field) fields.current.set(id, (field = createRef()));
-    const setDraft = (text: string) => setDrafts((current) => ({ ...current, [id]: text }));
+    const setDraft = (text: string) => setHeld((current) => ({ ...current, [id]: text }));
     return { typed: (drafts[id] ?? "").trim(), setDraft, field };
   };
   return (
@@ -268,16 +265,12 @@ function ReviewRows(props: Props & { role: Role }) {
           sourceOf(values, machine, (entry) => entry.review?.sensor, layer),
           layer,
         )}.`}
-        value={chosen ?? ""}
-        options={[
-          { label: "The kit's sensor", value: "" },
-          ...catalog.sensors.map((entry) => ({ label: entry.label, value: entry.id })),
-          { label: "Off", value: REVIEW_OFF },
-        ]}
+        value={value}
+        options={reviewOptions(catalog.sensors, catalog.kitSensor, machine, layer)}
         onValueChange={(next) => void save((current) => setReviewSensor(current, next || undefined))}
         disabled={disabled}
       />
-      {sensors.flatMap((sensor) => keyRows({ ...props, sensor }, draftOf(sensor.id), asks))}
+      {rows.flatMap(({ sensor, asked }) => keyRows({ ...props, sensor, asked }, draftOf(sensor.id), asks))}
     </Rows>
   );
 }

@@ -38,5 +38,6 @@ export function describeCatalog(kit: Kit): CatalogView {
       model: sensor.model,
       terms: sensor.terms,
     })),
+    kitSensor: kit.sensors[kit.attention.sensor] ? kit.attention.sensor : null,
   };
 }

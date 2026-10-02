@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
-import { test } from "node:test";
+import { type TestContext, test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { tempDir } from "../tempdir.ts";
 import { settle } from "./fake-timeline.ts";
 import { harness, laneWithPeer } from "./harness.ts";
@@ -22,6 +23,17 @@ function commitAll(h: Harness, cwd: string, files: Record<string, string>) {
   h.git(cwd, "add", "-A");
   h.git(cwd, "commit", "-qm", Object.keys(files).join(", "));
 }
+
+/** Waits until the desk records what the watch made of a seat's beats, however long that takes, or the test ends. */
+async function recorded(t: TestContext, check: () => boolean) {
+  while (!check()) await sleep(20, undefined, { signal: t.signal });
+}
+
+/** Whether whoever supervises has been told of the incident the watch opened on `finding`. */
+const told = (h: Harness, finding: string) => {
+  const opened = h.events("incident.open").find((event) => event.finding === finding);
+  return opened !== undefined && h.events("incident.told").some((event) => event.ids.includes(opened.id));
+};
 
 test("a lane lands after another moved main, gated with main's newer work in it, even while a third holds the project's copy", async () => {
   const h = harness();
@@ -286,7 +298,7 @@ test("what git shows of a lane goes with its landing as evidence, and holds noth
     assert.ok(evidence.includes(line), `${line}\n${evidence}`);
 });
 
-test("what the record holds of a lane goes to whoever lands it, and never to the Lead it is about", async () => {
+test("what the record holds of a lane goes to whoever lands it, and never to the Lead it is about", async (t) => {
   const { h, sup, lane, peer, timeline } = await laneWithPeer(undefined, undefined, {
     holds: ["a.txt"],
     parallel: true,
@@ -308,8 +320,7 @@ test("what the record holds of a lane goes to whoever lands it, and never to the
   });
   assert.equal(handed.ok, true);
   timeline.beat("turn_completed", "t1");
-  await settle();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await recorded(t, () => told(h, "claim-contradicted"));
   await h.idle(peer);
   await h.idle(lead);
   await h.idle(sup);
@@ -332,8 +343,7 @@ test("what the record holds of a lane goes to whoever lands it, and never to the
   pushing.beat("turn_started", "p1");
   const force = { type: "shell", command: "git push --force origin main" };
   pushing.add({ type: "tool_call", callId: "c1", name: "Bash", status: "running", detail: force }, "p1");
-  await settle();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await recorded(t, () => h.events("incident.open").some((event) => event.finding === "destructive"));
   assert.deepEqual(
     h.events("incident.open").map((event) => [event.id, event.finding]),
     [

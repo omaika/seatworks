@@ -2,15 +2,8 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { escaped, gateStep, heldGate } from "../gates.ts";
+import { escaped, gateReached, gateStep, heldGate } from "../gates.ts";
 import { harness, laneWithPeer } from "./harness.ts";
-
-/** Whether `check` comes true within `ms`, looked at every 20 ms. */
-async function within(ms: number, check: () => boolean): Promise<boolean> {
-  for (const end = Date.now() + ms; !check(); await new Promise((resolve) => setTimeout(resolve, 20)))
-    if (Date.now() > end) return false;
-  return true;
-}
 
 test("a READY is what the lane's copy holds with nobody writing there, and whatever changes the lane takes it away", async (t) => {
   const { h, sup, lane, peer } = await laneWithPeer();
@@ -88,7 +81,7 @@ test("a READY is what the lane's copy holds with nobody writing there, and whate
   const held = heldGate(t);
   await h.call(sup, "supervisor", "set_project", { gate: held.command });
   const reporting = report();
-  assert.ok(await within(5000, held.running), "the gate runs");
+  await gateReached(held, reporting);
   const amended = await h.call(sup, "supervisor", "amend_lane", {
     lane: "L1",
     why: "the Human wants one more case",
