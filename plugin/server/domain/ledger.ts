@@ -32,7 +32,7 @@ export type AgentRef = {
 type Spent = { banked: number; last: number };
 
 export type Ledger = {
-  seq: { lane: number; ask: number; slot?: number; question?: number };
+  seq: { lane: number; ask: number; slot?: number; question?: number; tip?: number };
   lanes: Record<string, Lane>;
   tasks: Record<string, Task>;
   asks: Record<string, Ask>;
@@ -40,6 +40,7 @@ export type Ledger = {
   agents: Record<string, AgentRef>;
   slots: Record<string, Slot>;
   left?: Record<string, LeftCopy>;
+  tips?: Record<string, string>;
 };
 
 /** A copy the desk let go of that held work nobody committed: it stays where it is, off the slots, until someone clears it. */

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../tempdir.ts";
 import { harness, laneWithPeer } from "./harness.ts";
-import { GATE_FAILS, GATE_PASSES, escaped, gateStep } from "../gates.ts";
+import { GATE_FAILS, GATE_PASSES, escaped, gateReached, gateStep, heldGate } from "../gates.ts";
+import { worktreeRoot } from "../../server/core/paths.ts";
+import { contracts } from "../../shared/rpc.ts";
 
 type Harness = ReturnType<typeof harness>;
 
@@ -291,6 +293,172 @@ test("a task's red gate comes with the same gate on its lane's tip, in a copy ma
     h.git(h.root, "worktree", "list", "--porcelain").match(/^worktree .*tip-.*$/gm),
     null,
     "and the copy it ran in is gone",
+  );
+});
+
+test("a tip whose copy failed to set up has no verdict on its commit, and the next red hand-back runs its gate again", async () => {
+  const { h, sup, lane } = await laneWithPeer();
+  const lead = lane.lead!;
+  const broke = join(tempDir("sw2-tip-setup-"), "broke");
+  writeFileSync(broke, "");
+  // The setup fails while `broke` is there; the gate needs what a setup leaves, and is red on either task's file.
+  await h.call(sup, "supervisor", "set_project", {
+    setup: `${gateStep("missing", broke)} && ${gateStep("touch", "SET_UP")}`,
+    gate: `${gateStep("missing", "BROKEN")} && ${gateStep("missing", "ALSO")} && ${gateStep("exists", "SET_UP")}`,
+    gateOn: "task",
+  });
+  const tip = () => h.git(h.root, "rev-parse", "--short=7", lane.branch).trim();
+  await handedBack(h, lead, "Breaks", "BROKEN");
+  assert.match(
+    after(h, lead, "HANDBACK L1-T2"),
+    new RegExp(
+      `the same gate was not run on ${lane.branch} at ${tip()}: the project's setup in its copy failed with exit 1; its log is \\S+\\.log`,
+    ),
+  );
+  rmSync(broke);
+  await handedBack(h, lead, "Also", "ALSO");
+  assert.match(
+    after(h, lead, "HANDBACK L1-T3"),
+    new RegExp(`the same gate on ${lane.branch} at ${tip()}, in a copy made as a task's is, passes\\.`),
+  );
+});
+
+test("a lane's tip copy keeps the lane's whole tree while its setup and gate run, through a patrol round and Clean, and goes once they end", async (t) => {
+  const { h, sup, lane } = await laneWithPeer();
+  const lead = lane.lead!;
+  const gate = heldGate(t);
+  await h.call(sup, "supervisor", "set_project", { gate: gateStep("missing", "BROKEN"), gateOn: "task" });
+  await h.call(lead, "lead", "add_tasks", {
+    tasks: [{ key: "t", title: "Breaks", goal: "g", ...scope, holds: ["BROKEN"], parallel: true }],
+  });
+  const task = Object.values(h.ledger().tasks).find((entry) => entry.title === "Breaks")!;
+  h.commit(task.worktree!, "BROKEN", "BROKEN\n");
+  // Set once the task's copy is made, so the first copy set up is the tip's, held until the test lets it go.
+  await h.call(sup, "supervisor", "set_project", { setup: gate.command });
+  const handed = h.call(task.peer!, "peer", "done", { outcome: "complete", summary: "Breaks" });
+  await gateReached(gate, handed);
+  const copies = join(worktreeRoot(), h.project.slug);
+  const [tip] = readdirSync(copies).filter((name) => name.startsWith("tip-"));
+  assert.ok(tip, "the tip is set up in a copy of its own");
+  const copy = join(copies, tip);
+
+  await h.tick();
+  const tracked = h.git(h.root, "ls-tree", "-r", "--name-only", lane.branch).split("\n").filter(Boolean);
+  assert.deepEqual(
+    tracked.filter((file) => !existsSync(join(copy, file))),
+    [],
+    "a patrol round leaves every tracked file of the tip in its copy",
+  );
+  const listed = await h.rpc(contracts.clean, {});
+  assert.deepEqual(
+    listed.items.filter((item) => item.path.includes("tip-")),
+    [],
+    "Clean does not offer a copy the desk is setting up",
+  );
+
+  gate.release();
+  assert.equal((await handed).ok, true);
+  assert.match(
+    after(h, lead, "HANDBACK L1-T2"),
+    new RegExp(`the same gate on ${lane.branch} at [0-9a-f]{7}, in a copy made as a task's is, passes\\.`),
+  );
+  assert.equal(existsSync(copy), false, "the copy goes once its gate ends, which ran to its own verdict");
+  mkdirSync(copy);
+  assert.deepEqual(
+    (await h.rpc(contracts.clean, {})).items.map((item) => item.path),
+    [copy],
+    "and nothing holds its path any more: a folder left there is Clean's to offer",
+  );
+  await h.tick();
+  assert.equal(existsSync(copy), false, "and the sweep's to take");
+});
+
+test("a second red hand-back while its lane's tip gate runs never takes the first run's copy", async (t) => {
+  const { h, sup, lane } = await laneWithPeer();
+  const lead = lane.lead!;
+  h.machineSettings({ gatesAtOnce: 2 });
+  const gate = heldGate(t);
+  // Red on either task's file; on the tip, which has neither, held until the test lets it go.
+  await h.call(sup, "supervisor", "set_project", {
+    gate: `${gateStep("missing", "BROKEN")} && ${gateStep("missing", "ALSO")} && ${gate.command}`,
+    gateOn: "task",
+  });
+  const peers: string[] = [];
+  for (const [title, file] of [
+    ["Breaks", "BROKEN"],
+    ["Also", "ALSO"],
+  ] as const) {
+    await h.call(lead, "lead", "add_tasks", {
+      tasks: [{ key: title, title, goal: "g", ...scope, holds: [file], parallel: true }],
+    });
+    const task = Object.values(h.ledger().tasks).find((entry) => entry.title === title)!;
+    h.commit(task.worktree!, file, `${file}\n`);
+    peers.push(task.peer!);
+  }
+  const done = (peer: string) => h.call(peer, "peer", "done", { outcome: "complete", summary: "red" });
+  const first = done(peers[0]!);
+  await gateReached(gate, first);
+  const copies = join(worktreeRoot(), h.project.slug);
+  const tips = () => readdirSync(copies).filter((name) => name.startsWith("tip-"));
+  const [held] = tips();
+  assert.ok(held);
+  gate.arm();
+  const second = done(peers[1]!);
+  await gateReached(gate, second);
+  assert.equal(tips().length, 2, "each run in a copy of its own");
+  const tracked = h.git(h.root, "ls-tree", "-r", "--name-only", lane.branch).split("\n").filter(Boolean);
+  assert.deepEqual(
+    tracked.filter((file) => !existsSync(join(copies, held, file))),
+    [],
+    "the first run's copy keeps the whole tip",
+  );
+  await h.tick();
+  assert.equal(existsSync(join(copies, held, "a.txt")), true, "and is still held through a patrol round");
+
+  gate.release();
+  assert.deepEqual(
+    (await Promise.all([first, second])).map((reply) => reply.ok),
+    [true, true],
+  );
+  for (const id of ["L1-T2", "L1-T3"])
+    assert.match(
+      after(h, lead, `HANDBACK ${id}`),
+      new RegExp(`the same gate on ${lane.branch} at [0-9a-f]{7}, in a copy made as a task's is, passes\\.`),
+    );
+  assert.deepEqual(tips(), [], "each run's copy goes once it ends");
+});
+
+test("a tip gate the plugin's stop cuts short has no verdict on its commit, and the next red hand-back runs it again", async (t) => {
+  const { h, sup, lane } = await laneWithPeer();
+  const lead = lane.lead!;
+  const gate = heldGate(t);
+  // Red on either task's file; on the tip, which has neither, held until the test lets it go.
+  await h.call(sup, "supervisor", "set_project", {
+    gate: `${gateStep("missing", "BROKEN")} && ${gateStep("missing", "ALSO")} && ${gate.command}`,
+    gateOn: "task",
+  });
+  const peers: string[] = [];
+  for (const [title, file] of [
+    ["Breaks", "BROKEN"],
+    ["Also", "ALSO"],
+  ] as const) {
+    await h.call(lead, "lead", "add_tasks", {
+      tasks: [{ key: title, title, goal: "g", ...scope, holds: [file], parallel: true }],
+    });
+    const task = Object.values(h.ledger().tasks).find((entry) => entry.title === title)!;
+    h.commit(task.worktree!, file, `${file}\n`);
+    peers.push(task.peer!);
+  }
+  const done = (peer: string) => h.call(peer, "peer", "done", { outcome: "complete", summary: "red" });
+  const cut = done(peers[0]!);
+  await gateReached(gate, cut);
+  h.restart();
+  await cut;
+  gate.release();
+  assert.equal((await done(peers[1]!)).ok, true);
+  assert.match(
+    after(h, lead, "HANDBACK L1-T3"),
+    new RegExp(`the same gate on ${lane.branch} at [0-9a-f]{7}, in a copy made as a task's is, passes\\.`),
   );
 });
 

@@ -7,12 +7,13 @@ import type { Workspaces } from "../../core/ports.ts";
 import { worktreeRoot } from "../../core/paths.ts";
 import type { DeskBase } from "../base.ts";
 import type { Ledger } from "../../domain/ledger.ts";
+import { heldCopies } from "./held.ts";
 import type { Project } from "../project/project.ts";
 import { unsavedIn } from "./unsaved.ts";
 
 /**
  * What the desk opened and nothing holds any more. Liveness is read under the ledger lock when used: `reserve` writes
- * its row before `git worktree add`.
+ * its row before `git worktree add`, as a lane tip's gate writes its path.
  */
 export async function sweepCopies(
   { ledgers, log }: Pick<DeskBase, "ledgers" | "log">,
@@ -39,14 +40,13 @@ export async function sweepCopies(
   }
   const root = join(worktreeRoot(), project.slug);
   if (!root.startsWith(worktreeRoot()) || !existsSync(root)) return;
-  // Read and listed inside the lock; removal outside it is safe because a slot id is never handed out twice.
-  const live = (current: Ledger) => new Set(Object.values(current.slots).map((slot) => slot.path));
-  const held = live(ledgers.read(project));
+  // Removal outside the lock is safe because a slot id is never handed out twice, nor a tip's path while its gate runs.
+  const held = heldCopies(ledgers.read(project));
   const strays = readdirSync(root)
     .map((name) => join(root, name))
     .filter((path) => !held.has(path));
   for (const path of strays) {
-    if (live(ledgers.read(project)).has(path)) continue;
+    if (heldCopies(ledgers.read(project)).has(path)) continue;
     // Work no commit holds is the Human's to keep or throw away: Clean shows such a copy and never takes it.
     if (existsSync(join(path, ".git")) && (await unsavedIn(path))) continue;
     await removeWorktree(project.root, path);

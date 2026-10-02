@@ -12,6 +12,7 @@ import { addDetached, headSha, removeWorktree } from "../../core/git.ts";
 import { worktreeRoot } from "../../core/paths.ts";
 import { bringIncluded } from "../copies/worktree-include.ts";
 import { setUpCopy } from "../copies/setup.ts";
+import { holdTip, letTipGo } from "../copies/held.ts";
 
 /** `ran` is whether anything ran: a lane with no gate and nothing to rehearse passes with nothing run. */
 type GateVerdict = { ok: boolean; text: string; ran: boolean };
@@ -19,7 +20,7 @@ type GateVerdict = { ok: boolean; text: string; ran: boolean };
 /** One command of a gate run: the project's gate, or a risk rule's rehearsal, named as `what`. */
 type Step = { command: string; what: string };
 
-type StepRun = Step & { ok: boolean; seconds: number; tail: string; logFile: string; failed: string };
+type StepRun = Step & { ok: boolean; stopped: boolean; seconds: number; tail: string; logFile: string; failed: string };
 
 /** The rehearsals of the risk rules `files` reach: a change git cannot read meets every rule, not none. */
 function rehearsals(project: Project, kit: Kit, files: string[] | undefined): Step[] {
@@ -53,7 +54,15 @@ async function runSteps(
       : result.timedOut
         ? `timed out after ${minutes} minutes`
         : `failed with exit ${result.code}`;
-    runs.push({ ...step, ok: result.ok, seconds: result.seconds, tail: result.tail, logFile, failed });
+    runs.push({
+      ...step,
+      ok: result.ok,
+      stopped: result.stopped,
+      seconds: result.seconds,
+      tail: result.tail,
+      logFile,
+      failed,
+    });
     if (stopAtRed && !result.ok) break;
   }
   return runs;
@@ -134,21 +143,35 @@ async function onLaneTip(
   const said = (ok: boolean) =>
     `the same gate on ${lane.branch} at ${sha.slice(0, 7)}, in a copy made as a task's is, ${ok ? "passes" : "fails too"}`;
   if (lane.tipGate?.sha === sha) return said(lane.tipGate.ok);
-  const copy = { id: `tip-${lane.id}`, path: join(worktreeRoot(), project.slug, `tip-${lane.id}-${sha.slice(0, 12)}`) };
-  if (!(await addDetached(project.root, copy.path, sha, gitTimeout(project))))
-    return `the same gate was not run on ${lane.branch}: git could not make a copy of it`;
+  // Held before git makes it, as a slot's row is, so no sweep takes it from under the setup or the gate.
+  const path = desk.ledgers.transact(project, (ledger) => holdTip(ledger, join(worktreeRoot(), project.slug), lane.id));
+  const copy = { id: `tip-${lane.id}`, path };
   try {
+    if (!(await addDetached(project.root, copy.path, sha, gitTimeout(project))))
+      return `the same gate was not run on ${lane.branch}: git could not make a copy of it`;
     const missed = await bringIncluded(project.root, copy.path);
     if (missed) desk.log(project, `the copy of ${lane.branch}'s tip: ${missed}`);
-    await setUpCopy(desk, project, copy);
+    const setUp = await setUpCopy(desk, project, copy);
+    // A copy its setup broke says nothing of the tip, so no verdict stands for this commit and the next red asks again.
+    if (setUp && !setUp.ok)
+      return `the same gate was not run on ${lane.branch} at ${sha.slice(0, 7)}: the project's setup in its copy ${setUp.failed}; its log is ${setUp.logFile}`;
     const [run] = await runSteps(desk, project, `${lane.id}-tip`, copy.path, [{ command, what: command }], true);
+    // A run the plugin's stop cut short never finished, so it says nothing of the tip either.
+    if (run!.stopped)
+      return `the same gate on ${lane.branch} at ${sha.slice(0, 7)} ${run!.failed}, so it says nothing yet`;
     desk.ledgers.setLane(project, lane.id, (entry) => {
       entry.tipGate = { sha, ok: run!.ok };
     });
     return said(run!.ok);
   } finally {
-    await removeWorktree(project.root, copy.path);
-    rmSync(copy.path, { recursive: true, force: true });
+    // The path is this run's alone, so what is there, a half-made copy too, is its own to remove.
+    try {
+      await removeWorktree(project.root, copy.path);
+      rmSync(copy.path, { recursive: true, force: true });
+    } finally {
+      // Let go even where removal failed: the sweep then takes what is left.
+      desk.ledgers.transact(project, (ledger) => letTipGo(ledger, copy.path));
+    }
   }
 }
 

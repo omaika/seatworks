@@ -8,6 +8,7 @@ import { contentRoot, expandHome, guidesDir, stateRoot, worktreeRoot } from "../
 import { errorText } from "../core/errors.ts";
 import { daemonLog } from "../core/logger.ts";
 import { readLedger } from "../desk/store/ledger.ts";
+import { heldCopies } from "../desk/copies/held.ts";
 import type { Project } from "../desk/project/project.ts";
 import { landsAt, present } from "../core/fs.ts";
 import { isRecord } from "../core/json.ts";
@@ -92,7 +93,7 @@ async function copies(ctx: CleanContext): Promise<Found[]> {
     const project = attached.get(slug);
     let held: Set<string>;
     try {
-      held = new Set(project ? Object.values(readLedger(project.state).slots).map((slot) => resolve(slot.path)) : []);
+      held = new Set(project ? [...heldCopies(readLedger(project.state))].map((path) => resolve(path)) : []);
     } catch {
       // A ledger that will not read says nothing about which copies are free, so none of them are.
       continue;
