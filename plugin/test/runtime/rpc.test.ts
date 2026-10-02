@@ -232,7 +232,7 @@ test("settings: machine and project layers saved by revision, checked before sav
   assert.equal(checks.find((check) => check.id === "settings")!.ok, false, "the doctor reports an unreadable layer");
 });
 
-test("the panel's Refresh lists each agent's models through its built-in provider, in the state root alone, no other panel call asks Paseo for any, and a changed list reaches the providers", async () => {
+test("the panel's Refresh lists each agent's models through its built-in provider, in the state root alone, no other panel call asks Paseo for any, and a changed list reaches the panel's catalog and the providers", async () => {
   const listed = (provider: string) =>
     provider === "claude" ? { models: [{ id: "opus", label: "Opus 5" }] } : { models: [{ id: "glm", label: "GLM" }] };
   const paseo = daemon(fakeConfig(), [], listed);
@@ -253,6 +253,17 @@ test("the panel's Refresh lists each agent's models through its built-in provide
     [...new Set(paseo.asked.map((ask) => `${ask.kind} ${ask.provider} ${ask.cwd}`))].sort(),
     ["list", "refresh"].flatMap((kind) => [`${kind} claude ${stateRoot()}`, `${kind} omp ${stateRoot()}`]),
     "an agent's own provider answers for it, so listing needs no provider of the kit's",
+  );
+  assert.deepEqual(
+    (await call(contracts.catalog, {})).harnesses.map((harness) => [
+      harness.id,
+      harness.models.map((model) => model.id),
+    ]),
+    [
+      ["claude", ["opus"]],
+      ["omp", ["glm"]],
+    ],
+    "the panel offers each agent's roles what Paseo now lists for it",
   );
   assert.deepEqual(
     (await providers())["sw2-lead-claude"]?.additionalModels,
