@@ -291,6 +291,13 @@ brains: Jev, a small model asked over OpenRouter with your key, which stays on t
 never shown again; the Watcher seat; both, where Jev sifts and the seat judges only what it flagged;
 or none, which leaves the code's facts.
 
+Review asks Jev too, apart from the watch: the one-condition checks a Lead reads as evidence at a
+hand-back and a review. Their sensor is **Review's checks**, in the Reviewer's line under **Seats** in
+**Team**, on the machine and on a project alike: the kit's sensor, one from the catalog, or **Off**,
+which asks none whatever the Watcher's brains read. So the watch can use the Watcher seat while
+review still uses Jev, or the other way round. With the Watcher's brains not using Jev and review's
+checks **Off**, Jev is never asked, and nothing complains of a missing OpenRouter key.
+
 Everything the watch finds becomes an **incident** and goes to the Supervisor, which decides whether
 and how to step in: nothing, one open question, a council, a hold, or you. There is no switch per
 signal: the Supervisor marks each incident `useful`, `noise` or `unknown`, and a kind it marked noise
