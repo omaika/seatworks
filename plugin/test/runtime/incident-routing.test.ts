@@ -32,19 +32,10 @@ test("what was held because nobody could read it is told once somebody can, and 
   await notice(h, peer, "destructive", "page", "rm -rf build");
   assert.equal(book(h).I1!.held, "nobody");
   seated(true);
-  assert.deepEqual((await notice(h, peer, "destructive", "page", "git push --force origin main")).sent, ["I1"]);
-  assert.match(
-    told("I1").join("\n"),
-    /INCIDENT I1 \(destructive, page\)[\s\S]*git push --force origin main/,
-    "on its next sighting, in the latest words",
-  );
-  await notice(h, peer, "destructive", "page", "rm -rf dist");
+  assert.deepEqual((await notice(h, peer, "destructive", "page", "rm -rf build")).sent, ["I1"]);
+  assert.match(told("I1").join("\n"), /INCIDENT I1 \(destructive, page\)[\s\S]*rm -rf build/, "on its next sighting");
+  await notice(h, peer, "destructive", "page", "rm -rf build");
   assert.equal(told("I1").length, 1, "told once, then quiet");
-  assert.equal(
-    book(h).I1!.quote,
-    "git push --force origin main",
-    "what the Supervisor was told is what stays on record",
-  );
   assert.equal((await h.call(sup, "supervisor", "mark_incident", { id: "I1", verdict: "useful" })).ok, true);
 
   seated(false);
@@ -56,14 +47,9 @@ test("what was held because nobody could read it is told once somebody can, and 
   await h.tick();
   assert.equal(told("I2").length, 1, "the round tells it once somebody sits down, and once only");
   assert.match(told("I2").join("\n"), /rm -rf src/);
-  await notice(h, peer, "destructive", "page", "git push --force origin main");
+  await notice(h, peer, "destructive", "page", "rm -rf src");
   const acked = await h.call(sup, "supervisor", "mark_incident", { id: "I2", verdict: "useful" });
-  assert.match(
-    acked.text,
-    /after you were told: git push --force origin main/,
-    "a sighting after the letter is kept beside it",
-  );
-  assert.equal(book(h).I2!.quote, "rm -rf src");
+  assert.match(acked.text, /after you were told: rm -rf src/, "a sighting after the letter is kept beside it");
 
   seated(false);
   await notice(h, lane.lead!, "stuck");

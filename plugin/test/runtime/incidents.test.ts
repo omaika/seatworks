@@ -262,3 +262,27 @@ test("a noise mark still settling its repeats outlives the trimming of the book"
     "the closed incident trimmed is the one nothing has touched for longest",
   );
 });
+
+test("while a page is open, each different command of its kind pages on its own, and a repeat only adds to its own", async () => {
+  const { h, sup, peer } = await laneWithPeer();
+  const told = (command: string) => h.heard(sup).filter((text) => text.includes(command)).length;
+  const [first] = (await notice(h, peer, "destructive", "page", "rm -rf build")).opened;
+  const [second] = (await notice(h, peer, "destructive", "page", "git clean -fdx")).opened;
+  assert.ok(second && second.id !== first!.id, "a different command of that kind opens its own page");
+  assert.equal(told("git clean -fdx"), 1, "and it reaches whoever supervises");
+  assert.deepEqual(
+    [
+      (await notice(h, peer, "destructive", "page", "rm -rf build")).opened,
+      book(h)[first!.id]!.count,
+      told("rm -rf build"),
+    ],
+    [[], 2, 1],
+    "the same command seen again adds to its open page and pages no more",
+  );
+  await notice(h, peer, "stuck", "attend", "the same action failing 3 times");
+  assert.deepEqual(
+    (await notice(h, peer, "stuck", "attend", "the same action failing 4 times")).opened,
+    [],
+    "other words of a kind that is no page still add to its open incident",
+  );
+});

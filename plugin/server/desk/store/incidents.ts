@@ -35,7 +35,7 @@ export function saveIncidents(state: string, incidents: Incidents): void {
   writeJson(incidentsFile(state), incidents);
 }
 
-/** The open incident a sighting adds to: the same seat and kind, and the same eye, so a brain's never adds to the code's. */
+/** The open incident of a kind on a seat, seen by the same eye, so a brain's never adds to the code's. */
 export function openFor(incidents: Incidents, seat: string, kind: string, brain = false): Incident | undefined {
   return Object.values(incidents.items).find(
     (item) => item.open && item.seat === seat && item.kind === kind && Boolean(item.brain) === brain,
@@ -51,6 +51,13 @@ export function saidBefore(incidents: Incidents, seat: string, kind: string, quo
 
 const episode = (item: { task?: string; lane?: string }) => item.task ?? item.lane;
 
+/** The same seat, kind and eye, and for a page the same command too, since another may be the dangerous one. */
+const alike = (item: Incident, sighting: Sighting) =>
+  item.seat === sighting.seat &&
+  item.kind === sighting.kind &&
+  Boolean(item.brain) === Boolean(sighting.brain) &&
+  (sighting.level !== "page" || item.quote === sighting.quote);
+
 /**
  * Already settled as noise: counts the sighting and answers true. `mark_incident` closes an incident, so a standing
  * condition would reopen after every mark. A mark settles its kind on that seat and task, or lane where there is no
@@ -58,16 +65,8 @@ const episode = (item: { task?: string; lane?: string }) => item.task ?? item.la
  * marks settle only its own.
  */
 export function settledAsNoise(incidents: Incidents, sighting: Sighting, now: number): boolean {
-  const brain = Boolean(sighting.brain);
   const marked = Object.values(incidents.items).find(
-    (item) =>
-      !item.open &&
-      item.label === "noise" &&
-      item.seat === sighting.seat &&
-      item.kind === sighting.kind &&
-      Boolean(item.brain) === brain &&
-      episode(item) === episode(sighting) &&
-      (sighting.level !== "page" || item.quote === sighting.quote),
+    (item) => !item.open && item.label === "noise" && alike(item, sighting) && episode(item) === episode(sighting),
   );
   if (!marked) return false;
   marked.count += 1;
@@ -75,8 +74,9 @@ export function settledAsNoise(incidents: Incidents, sighting: Sighting, now: nu
   return true;
 }
 
+/** Adds a sighting to the open incident it is alike, or opens one: a different command of a page kind pages on its own. */
 export function sight(incidents: Incidents, sighting: Sighting, now: number): { incident: Incident; opened: boolean } {
-  const seen = openFor(incidents, sighting.seat, sighting.kind, Boolean(sighting.brain));
+  const seen = Object.values(incidents.items).find((item) => item.open && alike(item, sighting));
   if (seen) {
     Object.assign(seen, { facts: [...new Set([...seen.facts, ...sighting.facts])], last: now, count: seen.count + 1 });
     if (seen.told === undefined) seen.quote = sighting.quote;
