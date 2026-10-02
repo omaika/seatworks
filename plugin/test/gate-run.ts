@@ -38,14 +38,17 @@ const ops: Record<string, (args: string[]) => void> = {
     sleep(Number(seconds));
     rmSync(dir!, { recursive: true });
   },
-  /** A run that ends green having left something running, which goes on writing into the log until it is stopped. The
-   * line it leaves is worked out here, so the gate command the log opens with does not hold it already. */
-  leaves: ([said, file, seconds]) => {
-    process.stdout.write(`${said}\n`);
+  /** A run that ends green having left something running, which writes into the log once `open` is there, unless it was
+   * stopped first; its pid goes to `pidFile`. The line it leaves is worked out here, so the gate command the log opens
+   * with does not hold it already. */
+  leaves: ([said, file, open, pidFile]) => {
     const line = `late ${6 * 7}\n`;
-    const after = `setTimeout(() => require("node:fs").appendFileSync(${JSON.stringify(file)}, ${JSON.stringify(line)}), ${Number(seconds) * 1000})`;
+    const after = `const fs = require("node:fs"); while (!fs.existsSync(${JSON.stringify(open)})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20); fs.appendFileSync(${JSON.stringify(file)}, ${JSON.stringify(line)})`;
     // In this gate's own process group, not one of its own: what the gate leaves behind is what the group kill must reach.
-    spawn(process.execPath, ["-e", after], { stdio: "ignore" }).unref();
+    const left = spawn(process.execPath, ["-e", after], { stdio: "ignore" });
+    left.unref();
+    writeFileSync(pidFile!, String(left.pid));
+    process.stdout.write(`${said}\n`);
   },
   /** More output than a whole-file read survives, with the reason on the last line. */
   noisy: ([bytes, line]) => {
