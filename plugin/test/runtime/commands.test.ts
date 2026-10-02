@@ -87,6 +87,13 @@ test("an irreversible command is paged the moment it is known, quoted where it i
     "a variable nothing here set from mktemp is not scratch",
   );
   assert.equal(paged("mkdir -p out/tmp && rm -rf out").length, 1, "removing more than it made is not");
+
+  // L27-R2: nesting deep enough to overflow the reader once lost every fact of the call.
+  assert.equal(
+    paged(`rm -rf /x; echo ${"$(".repeat(4000)}${")".repeat(4000)}`).length,
+    1,
+    "a command too deep to read",
+  );
 });
 
 test("scratch is read from the words the shell passes, whatever quotes build them", () => {
@@ -307,6 +314,11 @@ test("a command that reads, prints, dumps or stages a secret is paged, and one o
     assert.equal(raised("secret", command).length, 1, command);
   for (const command of ["cat .env.example", "cp .env.example .env", "env NODE_ENV=test node x.js", "echo done"])
     assert.deepEqual(raised("secret", command), [], command);
+  const key = "AIzaFAKE0FAKE1FAKE2FAKE3FAKE4FAKE5FAKE6"; // a shape core/mask.ts leaves as it is
+  for (const command of [`echo ${key}`, `grep -rn ${key} .env`]) {
+    const quotes = raised("secret", command);
+    assert.ok(quotes.length > 0 && quotes.every((quote) => !quote.includes(key)), `never the secret: ${quotes.join()}`);
+  }
   assert.equal(
     play(
       [...opening(), again(piRow(11), "c", 2, (detail) => Object.assign(detail, { command: "cat .env" }))],
