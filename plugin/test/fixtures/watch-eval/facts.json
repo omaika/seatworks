@@ -641,6 +641,210 @@
       "command": "case $x in (*) cat ~/.ssh/id_rsa;; esac"
     },
     {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29: a glob `?` in a key file's name, as no optional chaining is",
+      "command": "cat a?.pem"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29: a glob that matches key files",
+      "command": "cat *.pem"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29: a brace that names key files",
+      "command": "cat id_{rsa,ed25519}"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29: git log's -m is its diff of merges, which -p prints",
+      "command": "git log -p -m .env"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29: nested past what the reader follows, the read before it still pages",
+      "command": "cat .env; echo $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( $( x ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) )"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L29-R1: a quoted `?.` is optional chaining in a pattern, not a glob",
+      "command": "grep -rn 'sensor?.key' server"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L29-R1: a quoted `?.` is optional chaining in a pattern, not a glob",
+      "command": "rg 'config?.key' src"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L29-R1: a quoted `?.` is optional chaining in a jq filter, not a glob",
+      "command": "jq '.sensor?.key' x.json"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L29-R1: a declaration of another language, which no shell runs",
+      "command": "const kept = values.sensor?.key === KEPT"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L29-R1: a quoted brace is a literal name, which the shell does not expand",
+      "command": "cat 'id_{rsa,dsa}'"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R1: a brace that copies a key file",
+      "command": "cp ~/.ssh/id_rsa{,.bak}"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R1: a brace that moves a secret file",
+      "command": "mv .env{,.old}"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R2: bash runs a substitution in an arithmetic subscript",
+      "command": "let 'x[$(cat ~/.ssh/id_rsa)]'"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R2: git expands a quoted pathspec glob itself",
+      "command": "git add 'a?.pem'"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R2: git expands a quoted pathspec glob itself",
+      "command": "git rm --cached 'a?.key'"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L29-R2: git grep's pattern is no pathspec",
+      "command": "git grep -n 'sensor?.key' server"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R2: a glob that matches a secret file",
+      "command": "cat .env*"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R2: a glob that matches a secret file",
+      "command": "cat .en?"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R2: a glob that matches a key file",
+      "command": "cat id_*"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R2: a glob that matches a key file",
+      "command": "cat id_rs?"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R2: a glob that matches a credentials file",
+      "command": "cat credential?"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R2: a glob that matches a key file",
+      "command": "cat id_[rd]sa"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L29-R2: a glob no secret's name fits",
+      "command": "cat id_*.pub"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L29-R2: a glob no secret's name fits",
+      "command": "cat src/*.json"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L29-R2: a bare `*` names no file of its own",
+      "command": "cat *"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L29-R3: a glob's own characters spell too little of any secret's name",
+      "command": "ls *.*"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L29-R3: a glob's own characters spell too little of any secret's name",
+      "command": "cat *s"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L29-R3: a glob's own characters spell too little of any secret's name",
+      "command": "cat .*"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R3: a glob's own characters spell half of a key file's name",
+      "command": "cat *.p*"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R3: a glob in a directory part of a key path",
+      "command": "cat .ss?/id_rsa"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R3: a glob in a directory part of a key path",
+      "command": "cat ~/.s*/id_ed25519"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R3: a glob in a directory part that only a secret folder fits",
+      "command": "cat .ss?/config"
+    },
+    {
+      "fact": "secret",
+      "expect": true,
+      "source": "L29-R3: a glob in a directory part that only a secret folder fits",
+      "command": "cat ~/.s*/config"
+    },
+    {
+      "fact": "secret",
+      "expect": false,
+      "source": "L29-R3: a directory glob whose own characters spell too little of any secret folder",
+      "command": "cat ~/.*/config"
+    },
+    {
       "fact": "boundary",
       "expect": true,
       "source": "synthetic",
@@ -1045,6 +1249,12 @@
       "expect": true,
       "source": "synthetic",
       "command": "git push --no-verify origin main"
+    },
+    {
+      "fact": "guard",
+      "expect": true,
+      "source": "L29-R1: git's own options before the commit",
+      "command": "git -c core.editor=true commit --no-verify -m wip"
     },
     {
       "fact": "guard",

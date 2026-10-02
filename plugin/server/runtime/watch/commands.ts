@@ -2,6 +2,7 @@ import { posix, win32 } from "node:path";
 import { oneLine, within } from "../../core/text.ts";
 import { type Fact, fact } from "../../domain/incident.ts";
 import { type Rules, secretFile, str } from "./facts.ts";
+import { globsSecret } from "./globs-secret.ts";
 import type { Call } from "./window.ts";
 
 const MKTEMP = /\b([A-Za-z_]\w*)=["']?(?:\$\(\s*mktemp\b[^)]*\)|`\s*mktemp\b[^`]*`)/g;
@@ -26,36 +27,47 @@ const WINDOWS_START = /^(?:\.{0,2}|[A-Za-z]:.*|.*\\.*)$/s;
 const escapes = (word: string | undefined, next: string): boolean =>
   /["'$`\\]/.test(next) || (/\s/.test(next) && !WINDOWS_START.test(word ?? ""));
 
+/** A word as the shell passes it, and the same with each character it got quoted or escaped as `\0`, which it neither globs nor expands. */
+type Word = { word: string; bare: string };
+
 /**
  * A command's words as the shell passes them: quotes and escapes gone, `"$TMPDIR"/x` one word, and a `$(…)` kept whole
  * with its own quotes. A backslash escapes only what the shell would read otherwise, so a Windows path keeps its own.
  */
-function shellWords(line: string): string[] {
-  const words: string[] = [];
+function shellTokens(line: string): Word[] {
+  const words: Word[] = [];
   let word: string | undefined;
+  let bare = "";
   let quote: string | undefined;
+  const add = (text: string, held: boolean) => {
+    word = (word ?? "") + text;
+    bare += held ? "\0".repeat(text.length) : text;
+  };
   for (let at = 0; at < line.length; at++) {
     const char = line[at]!;
     if (quote === "'") {
       if (char === "'") quote = undefined;
-      else word += char;
+      else add(char, true);
     } else if (char === "$" && line[at + 1] === "(") {
       const end = closing(line, at + 1);
-      word = (word ?? "") + line.slice(at, end + 1);
+      add(line.slice(at, end + 1), true);
       at = end;
     } else if (char === "\\" && escapes(word, line[at + 1] ?? "")) {
-      word = (word ?? "") + line[++at];
+      add(line[++at] ?? "", true);
     } else if (char === '"' || (char === "'" && !quote)) {
       quote = quote === char ? undefined : char;
       word ??= "";
     } else if (!quote && /\s/.test(char)) {
-      if (word !== undefined) words.push(word);
+      if (word !== undefined) words.push({ word, bare });
       word = undefined;
-    } else word = (word ?? "") + char;
+      bare = "";
+    } else add(char, quote !== undefined);
   }
-  if (word !== undefined) words.push(word);
+  if (word !== undefined) words.push({ word, bare });
   return words;
 }
+
+const shellWords = (line: string): string[] => shellTokens(line).map(({ word }) => word);
 
 /** What removes files, as each shell names it; cmd's flags start with a slash. */
 const REMOVES = new Set(["rm", "remove-item", "ri", "rmdir", "rd", "del", "erase"]);
@@ -275,6 +287,9 @@ function patternEnd(source: string, at: number): number | undefined {
   }
   return undefined;
 }
+
+/** What may end a command in text too deep to read, quotes or not, as `single` reads a lone `&`. */
+const RAW_SEPARATORS = /&&|\|\||;|\n|(?<![<>|&])&(?![&>])/;
 
 /** A single `&` ends a command in cmd, PowerShell and sh alike; in `2>&1`, `&>` or `|&` it is part of a redirection. */
 const single = (source: string, at: number) =>
@@ -531,10 +546,12 @@ export function onDetail(call: Call, rules: Rules): Fact[] {
     readAll(commandsIn(source, 0).commands, rules, quote, found, 0, REREAD * source.length);
   } catch (error) {
     if (!(error instanceof OutOfReach)) throw error;
-    // Past what the reader follows: the raw text is read as one command too, so what it holds still pages.
-    const raw = { text: source, unquoted: source, then: undefined, holds: [], heredocs: [] };
+    // Past what the reader follows: the raw text is read too, cut where a command may end, so what it holds still pages.
+    const raw = source
+      .split(RAW_SEPARATORS)
+      .map((text) => ({ text, unquoted: text, then: undefined, holds: [], heredocs: [] }));
     const more: Fact[] = [];
-    readAll([raw], rules, quote, more, DEEPEST, 0);
+    readAll(raw, rules, quote, more, DEEPEST, 0);
     found.push(...more.filter((one) => !found.some((seen) => seen.kind === one.kind)));
   }
   if (rules.secretString.test(source) && !found.some((seen) => seen.kind === "secret"))
@@ -583,7 +600,7 @@ function read(commands: Command[], at: At, reading: Reading, depth: number): voi
     }
     const programs = pipeline(text, unquoted);
     const quoted = quote(text);
-    if (touchesSecret(words, unquoted, rules)) found.push(fact("secret", quoted));
+    if (touchesSecret(shellTokens(text), unquoted, rules)) found.push(fact("secret", quoted));
     if ((rules.boundary.test(unquoted) && !onlyLocal(words, rules)) || runsOutside(programs, rules, scratch))
       found.push(fact("boundary", quoted));
     if (rules.dependencyInstall.test(unquoted)) found.push(fact("dependency", quoted));
@@ -647,11 +664,24 @@ function fedBy(programs: Program[], rules: Rules): { shell: boolean; interpreter
 /** A commit or push told to skip its hooks: `--no-verify`, or a commit's `-n` in any cluster of short flags. */
 function skipsHooks(words: string[]): boolean {
   if (words[0] !== "git") return false;
-  const rest = words[1] === "-C" ? words.slice(3) : words.slice(1);
+  const rest = words.slice(gitVerb(words));
   const verb = rest[0];
   if (verb !== "commit" && verb !== "push") return false;
   return rest.some((word) => word === "--no-verify" || (verb === "commit" && /^-[a-zA-Z]*n[a-zA-Z]*$/.test(word)));
 }
+
+/** git's options before its subcommand that take a value in the next word. */
+const GIT_VALUED = /^(?:-C|-c|--git-dir|--work-tree|--namespace|--exec-path|--config-env|--super-prefix)$/;
+
+/** Where git's subcommand is among `words`, past git's own options. */
+function gitVerb(words: string[]): number {
+  let at = 1;
+  while (words[at]?.startsWith("-")) at += GIT_VALUED.test(words[at]!) ? 2 : 1;
+  return at;
+}
+
+/** git's subcommands whose `-m` is a message; to `log` or `show` it diffs merges, which `-p` prints. */
+const MESSAGED = new Set(["commit", "tag", "merge", "notes", "stash"]);
 
 /** A command that writes, moves or removes a file that fences a seat: by a redirect, or as a program that changes files. */
 function writesGuard(words: string[], rules: Rules): boolean {
@@ -689,8 +719,10 @@ function runsOutside(programs: Program[], rules: Rules, scratch: (path: string) 
   });
 }
 
-/** Builtins that read no file, whatever their words name. */
+/** Builtins that read no file, whatever their words name, and another language's declarations, which no shell runs. */
 const READS_NONE = new Set([
+  "const",
+  "var",
   "rm",
   "remove-item",
   "ri",
@@ -709,16 +741,67 @@ const READS_NONE = new Set([
 ]);
 
 /** A command that reads, prints, dumps or stages a secret: a secret path among what it reads, or a command that shows secrets. */
-function touchesSecret(words: string[], part: string, rules: Rules): boolean {
-  const command = words[0]?.toLowerCase() ?? "";
+function touchesSecret(tokens: Word[], part: string, rules: Rules): boolean {
+  const words = tokens.flatMap(expansions);
+  const command = words[0]?.word.toLowerCase() ?? "";
   if (rules.secretCommand.test(part.trim())) return true;
   // A `)` that closes nothing is a syntax error: the shell runs nothing of the line.
   if (READS_NONE.has(command) || /^[^(]*\)/.test(command)) return false;
-  // What cp and mv write to is not read, nor is a commit's message.
+  // What cp and mv write to is not read, nor is a message given to git's `-m`.
   const read = command === "cp" || command === "mv" ? words.slice(1, -1) : words.slice(1);
+  const verb = command === "git" ? words[gitVerb(words.map(({ word }) => word))]?.word : undefined;
+  const messaged = MESSAGED.has(verb ?? "");
+  // git globs a pathspec itself, quoted or not; `git grep`'s pattern is none.
+  const pathspecs = verb !== undefined && verb !== "grep";
   const message = (word: string, index: number) =>
-    command === "git" && (/^(?:-m|--message)$/.test(read[index - 1] ?? "") || /^(?:-m.|--message=)/.test(word));
-  return read.some((word, index) => !message(word, index) && secretFile(word, rules));
+    messaged && (/^(?:-m|--message)$/.test(read[index - 1]?.word ?? "") || /^(?:-m.|--message=)/.test(word));
+  return read.some((one, index) => {
+    if (message(one.word, index)) return false;
+    const glob = pathspecs ? { word: one.word, bare: one.word } : one;
+    return secretFile(globbed(glob), rules) || globsSecret(glob.word, glob.bare, rules, !pathspecs);
+  });
+}
+
+/** A word with each `?` the shell globs as a character it may match: a quoted `?.` stays optional chaining, which no file is named. */
+const globbed = ({ word, bare }: Word) => word.replace(/\?/g, (mark, at: number) => (bare[at] === "?" ? "_" : mark));
+
+/** How many words one word's braces may expand to before it is read as it is. */
+const MOST_EXPANDED = 64;
+
+/** The words a word's unquoted braces expand to, as `id_{rsa,ed25519}` names both files; `${…}` is a variable's. */
+function expansions(token: Word): Word[] {
+  const done: Word[] = [];
+  const waiting = [token];
+  for (let one = waiting.pop(); one; one = waiting.pop()) {
+    const brace = innermostBrace(one.bare);
+    if (!brace || done.length + waiting.length + brace.commas.length + 1 > MOST_EXPANDED) {
+      done.push(one);
+      continue;
+    }
+    const cuts = [brace.open, ...brace.commas, brace.close];
+    for (let alternative = cuts.length - 2; alternative >= 0; alternative--) {
+      const [from, to] = [cuts[alternative]! + 1, cuts[alternative + 1]!];
+      const join = (text: string) => text.slice(0, brace.open) + text.slice(from, to) + text.slice(brace.close + 1);
+      waiting.push({ word: join(one.word), bare: join(one.bare) });
+    }
+  }
+  return done;
+}
+
+/** The first brace with no brace inside it and a comma of its own, in one pass: where it opens, its commas, where it closes. */
+function innermostBrace(bare: string): { open: number; commas: number[]; close: number } | undefined {
+  let open = -1;
+  let commas: number[] = [];
+  for (let at = 0; at < bare.length; at++) {
+    const char = bare[at];
+    if (char === "{" && bare[at - 1] !== "$") [open, commas] = [at, []];
+    else if (char === "," && open >= 0) commas.push(at);
+    else if (char === "}" && open >= 0) {
+      if (commas.length > 0) return { open, commas, close: at };
+      open = -1;
+    }
+  }
+  return undefined;
 }
 
 /** Cuts around the match, not from the front: what makes a long command irreversible is often at its end. */
