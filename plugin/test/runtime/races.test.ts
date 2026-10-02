@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { heldGate } from "../gates.ts";
-import { settle } from "./fake-timeline.ts";
+import { gateReached, heldGate } from "../gates.ts";
 import { harness, heldCreate, laneWithPeer } from "./harness.ts";
 import { heldCall, heldLook } from "./lane-gates.ts";
 
@@ -216,8 +215,7 @@ test("a READY whose gate is still running when its lane closes is not recorded o
   await h.call(sup, "supervisor", "set_project", { gate: gate.command, gateOn: "lane" });
   await h.call(sup, "supervisor", "open_lane", { title: "Slow", ...scope });
   const reporting = h.call(h.ledger().lanes.L1!.lead!, "lead", "report", { summary: "ready to land", ready: true });
-  for (let i = 0; i < 500 && !gate.running(); i++) await settle();
-  assert.ok(gate.running());
+  await gateReached(gate, reporting);
   assert.equal((await h.call(sup, "supervisor", "drop_lane", { lane: "L1", reason: "no longer wanted" })).ok, true);
   gate.release();
   const reported = await reporting;

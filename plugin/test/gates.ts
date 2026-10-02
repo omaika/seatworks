@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,4 +33,16 @@ export function heldGate(t: { after: (fn: () => void) => void }) {
   };
   t.after(release);
   return { command: gateStep("held", reached, open), release, arm, running: () => existsSync(reached) };
+}
+
+/** Waits until `call` is held in `gate`, however long load makes that take; fails with its reply if it ends first. */
+export async function gateReached(gate: { running: () => boolean }, call: Promise<{ text: string }>) {
+  const ended = call.then((reply) => reply.text);
+  while (!gate.running()) {
+    const text = await Promise.race([
+      ended,
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 20)),
+    ]);
+    assert.equal(text, undefined, "the call ended without being held in its gate");
+  }
 }

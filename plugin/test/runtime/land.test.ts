@@ -7,7 +7,7 @@ import { settle } from "./fake-timeline.ts";
 import { harness, laneWithPeer } from "./harness.ts";
 import { NO_STAND_IN_GIT, heldLook } from "./lane-gates.ts";
 import { laneWith, risky } from "./landable.ts";
-import { GATE_FAILS, GATE_PASSES, escaped, gateStep, heldGate } from "../gates.ts";
+import { GATE_FAILS, GATE_PASSES, escaped, gateReached, gateStep, heldGate } from "../gates.ts";
 
 type Harness = ReturnType<typeof harness>;
 
@@ -394,8 +394,7 @@ test("two lanes landed at once each stay on the base: the second waits for the f
   h.git(h.root, "switch", "-qc", "human-work");
   writeFileSync(armed, "");
   const first = h.call(sup, "supervisor", "land_lane", { lane: "L1" });
-  for (let i = 0; i < 500 && !held.running(); i++) await settle();
-  assert.ok(held.running(), "the first landing is held in its gate");
+  await gateReached(held, first);
   const looked = heldLook(h, sup);
   const second = h.call(sup, "supervisor", "land_lane", { lane: "L2" });
   await looked.reached;
