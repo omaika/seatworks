@@ -7,7 +7,7 @@ import { saveLedger } from "../../server/desk/store/ledger.ts";
 import { reported } from "../console.ts";
 import { tempDir } from "../tempdir.ts";
 import { harness, laneWithPeer, nobodySeated } from "./harness.ts";
-import { gateStep, heldGate } from "../gates.ts";
+import { gateStep, heldGate, until } from "../gates.ts";
 
 /** Whether `check` comes true within `ms`, looked at every 20 ms. */
 async function within(ms: number, check: () => boolean): Promise<boolean> {
@@ -201,10 +201,11 @@ test("an answer promised as mail that a stop lost is owned up to once the plugin
       { within: 100 },
     );
   const told = () => h.agents.get(lead)!.sent.join("\n").split("NO ANSWER to your report call").length - 1;
-  const answered = (count: number) =>
-    within(
-      5000,
+  const answered = (count: number, what: string) =>
+    until(
+      t,
       () => h.heard(lead).join("\n").split("ANSWER to your report call, which ran longer").length - 1 === count,
+      what,
     );
 
   assert.match((await report("r1")).text, /answer arrives as mail/, "told to end its turn and wait");
@@ -213,12 +214,12 @@ test("an answer promised as mail that a stop lost is owned up to once the plugin
   await h.idle(lead);
   assert.equal(told(), 1, "the stop lost the answer, so the desk owns up to it");
   gate.release();
-  assert.ok(await answered(1), "the run the stop left behind finishes");
+  await answered(1, "the answer of the run the stop left behind");
 
   gate.arm();
   assert.match((await report("r2")).text, /answer arrives as mail/);
   gate.release();
-  assert.ok(await answered(2), "the answer comes as mail");
+  await answered(2, "r2's answer, as mail");
   h.restart();
   await h.tick();
   await h.idle(lead);
@@ -229,7 +230,7 @@ test("an answer promised as mail that a stop lost is owned up to once the plugin
   gate.arm();
   assert.match((await report("r3")).text, /answer arrives as mail/);
   gate.release();
-  assert.ok(await answered(3), "the answer still comes");
+  await answered(3, "r3's answer, with the promises file unreadable");
   assert.equal(
     readFileSync(join(stateRoot(), "intents.json"), "utf-8"),
     "{not json",

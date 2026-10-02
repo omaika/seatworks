@@ -3,14 +3,14 @@ import { writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { test } from "node:test";
+import { type TestContext, test } from "node:test";
 import { PaseoHost } from "../../server/adapters/paseo/host.ts";
 import { deskSocket, stateRoot } from "../../server/core/paths.ts";
 import type { TeamSocket } from "../../server/runtime/seat/team-socket.ts";
 import { contracts } from "../../shared/rpc.ts";
 import { reported } from "../console.ts";
 import { harness } from "./harness.ts";
-import { heldGate } from "../gates.ts";
+import { heldGate, until } from "../gates.ts";
 
 type Harness = ReturnType<typeof harness>;
 type Heard = {
@@ -29,7 +29,7 @@ async function within(ms: number, check: () => boolean): Promise<boolean> {
 }
 
 /** The Lead's team server's line to the desk of the plugin running now: what it heard, and a way to speak on it. */
-async function lineOf(h: Harness, t: { after(fn: () => void): void }) {
+async function lineOf(h: Harness, t: Pick<TestContext, "after" | "diagnostic" | "signal">) {
   const socket = (h.runtime as unknown as { socket: TeamSocket }).socket;
   socket.listen();
   t.after(() => socket.close());
@@ -40,10 +40,10 @@ async function lineOf(h: Harness, t: { after(fn: () => void): void }) {
   createInterface({ input: line }).on("line", (text) => heard.push(JSON.parse(text) as Heard));
   const say = (message: object) => line.write(`${JSON.stringify(message)}\n`);
   say({ type: "hello", key: "k-lead", role: "lead", cwd: h.root });
-  assert.ok(await within(2000, () => heard.some((said) => said.type === "welcome")), "the seat's key is known");
+  await until(t, () => heard.some((said) => said.type === "welcome"), "the desk's welcome, as the seat's key is known");
   const result = async (id: string) => {
     const answered = () => heard.find((said) => said.type === "result" && said.id === id);
-    assert.ok(await within(5000, () => answered() !== undefined), `a result for ${id}`);
+    await until(t, () => answered() !== undefined, `a result for ${id}`);
     return answered()!;
   };
   return { socket, heard, say, result };
@@ -91,7 +91,7 @@ test("a seat's line to the desk carries its choices and its calls, and a call st
     values: { mcp: { "intellij-index": { enabled: false } } },
   });
   assert.equal(saved.status, "saved", JSON.stringify(saved));
-  assert.ok(await within(2000, () => heard.some((said) => said.type === "choices")), "the seat's server is told");
+  await until(t, () => heard.some((said) => said.type === "choices"), "the new choices, told to the seat's server");
   const choices = heard.find((said) => said.type === "choices");
   assert.equal(skills(choices).includes("ide-index-mcp"), false, "without the server, its skill is no choice");
 
@@ -113,7 +113,7 @@ test("a seat's line to the desk carries its choices and its calls, and a call st
   await h.tick();
   assert.deepEqual(merged(), [], "answered is not taken: the harness has not read it yet");
   say({ type: "taken", id: "accept" });
-  assert.ok(await within(2000, () => !socket.calling(lead)));
+  await until(t, () => !socket.calling(lead), "the desk letting go of the taken call");
   await h.tick();
   assert.deepEqual(merged(), [], "nor once the call is done: the turn is still its own to think and write in");
   await h.idle(lead);
@@ -122,20 +122,23 @@ test("a seat's line to the desk carries its choices and its calls, and a call st
 
   // Mailed, or ridden along with the reply to a later call on a line, which carries what is held for its seat.
   const lines = [heard];
-  const mailed = (tool: string) =>
-    within(5000, () =>
-      new RegExp(`ANSWER to your ${tool} call, which was stopped on your side before its answer reached you\\.`).test(
-        [...h.heard(lead), ...lines.flat().map((said) => said.text ?? "")].join("\n"),
-      ),
+  const mailed = (tool: string, what: string) =>
+    until(
+      t,
+      () =>
+        new RegExp(`ANSWER to your ${tool} call, which was stopped on your side before its answer reached you\\.`).test(
+          [...h.heard(lead), ...lines.flat().map((said) => said.text ?? "")].join("\n"),
+        ),
+      what,
     );
   say({ type: "call", id: "status", tool: "status", args: {} });
   await result("status");
   say({ type: "cancel", id: "status" });
-  assert.ok(await mailed("status"), "an answer that reached the line but not the harness");
+  await mailed("status", "the status answer that reached the line but not the harness, mailed");
   say({ type: "call", id: "report", tool: "report", args: { summary: "done", ready: true } });
   say({ type: "cancel", id: "report" });
   gate.release();
-  assert.ok(await mailed("report"), "stopped before its answer came, it is mailed once its gate is done");
+  await mailed("report", "the report stopped before its answer came, mailed once its gate is done");
 
   // Loaded again, the plugin has Paseo's API only once a hook or a panel call brings it.
   const host = new PaseoHost();
@@ -145,7 +148,8 @@ test("a seat's line to the desk carries its choices and its calls, and a call st
   reloaded.say(addTask("a", "Waits", "x.txt"));
   reloaded.say(addTask("b", "Stopped", "y.txt"));
   reloaded.say({ type: "cancel", id: "b" });
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  // Held on the line, the call is the desk's; that it waited for Paseo shows in its answer once Paseo comes.
+  await until(t, () => reloaded.socket.calling(lead), "add_tasks a, held on the reloaded line");
   assert.equal(
     reloaded.heard.some((said) => said.type === "result"),
     false,
@@ -157,7 +161,7 @@ test("a seat's line to the desk carries its choices and its calls, and a call st
   } as never)({ name: "status" }, () => undefined);
   const waited = await reloaded.result("a");
   assert.equal(waited.ok, true, waited.text);
-  assert.ok(await mailed("add_tasks"), "one its harness stopped meanwhile is carried out too, and mailed");
+  await mailed("add_tasks", "add_tasks b, stopped by its harness meanwhile, carried out and mailed");
   // Either call may start the first task, so its Peer is read once both are done.
   const started = Object.values(h.ledger().tasks).find((entry) => entry.title === "Waits")!;
   assert.ok(started.peer, "carried out once Paseo came, its task started with a Peer of its own");
@@ -169,10 +173,7 @@ test("a seat's line to the desk carries its choices and its calls, and a call st
   reloaded.say({ type: "call", id: "late", tool: "status", args: {} });
   await reloaded.result("late");
   reloaded.say({ type: "cancel", id: "late" });
-  assert.ok(
-    await within(5000, () => /could not be mailed/.test(said())),
-    "a reply lost on its way that cannot be mailed either is reported, and the line goes on",
-  );
+  await until(t, () => /could not be mailed/.test(said()), "word that a reply lost on its way could not be mailed");
 });
 
 test("a seat Paseo starts again after it was archived is served nothing, and told why, as is any seat while the keys cannot be read", async (t) => {

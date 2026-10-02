@@ -57,3 +57,18 @@ export async function gateReached(
     assert.equal(text, undefined, "the call ended without being held in its gate");
   }
 }
+
+/**
+ * Waits until `check` holds, however long load makes that take; only the test's end, by its timeout too, stops it. The
+ * runner shows nothing thrown after a timeout, so `what` goes out as the test's diagnostic then, beside its timeout.
+ */
+export async function until(t: Pick<TestContext, "diagnostic" | "signal">, check: () => boolean, what: string) {
+  const never = () => t.diagnostic(`never came: ${what}`);
+  t.signal.addEventListener("abort", never, { once: true });
+  try {
+    while (!check()) await sleep(20, undefined, { signal: t.signal });
+  } finally {
+    // The signal aborts when a test passes too, so a wait that came says nothing then.
+    t.signal.removeEventListener("abort", never);
+  }
+}

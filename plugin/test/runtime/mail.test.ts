@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { stateRoot } from "../../server/core/paths.ts";
 import { sentBy } from "../../server/core/sent-by.ts";
 import { contracts } from "../../shared/rpc.ts";
-import { escaped, heldGate } from "../gates.ts";
+import { escaped, heldGate, until } from "../gates.ts";
 import { harness, laneWithPeer } from "./harness.ts";
 import { book } from "./noticed.ts";
 
@@ -35,13 +35,6 @@ async function lane(h: Harness, sup: string, title: string, work?: string) {
   const opened = h.ledger().lanes.L1!;
   if (work) await h.call(opened.lead!, "lead", "add_tasks", { tasks: [task(work)] });
   return { lane: opened, lead: opened.lead!, peer: work ? h.ledger().tasks["L1-T1"]!.peer! : "" };
-}
-
-/** Whether `check` comes true within `ms`, looked at every 20 ms. */
-async function within(ms: number, check: () => boolean): Promise<boolean> {
-  for (const end = Date.now() + ms; !check(); await new Promise((resolve) => setTimeout(resolve, 20)))
-    if (Date.now() > end) return false;
-  return true;
 }
 
 test("an ask reaches whoever can answer it, the answer comes back once, and whoever it was put to is told of it", async (t) => {
@@ -294,7 +287,7 @@ test("a call that runs longer than a seat can wait is answered once by mail, and
   assert.match(first.text, /still working on report/);
   assert.match(again.text, /already running/);
   held.release();
-  assert.ok(await within(5000, () => /ANSWER to your report call/.test(heard(h, lead))), "answered as mail");
+  await until(t, () => /ANSWER to your report call/.test(heard(h, lead)), "the report's answer, as mail");
   assert.equal(readdirSync(join(h.project.state, "gates")).filter((name) => name.startsWith("L1-")).length, 1);
   assert.equal(heard(h, lead).split("ANSWER to your report call").length - 1, 1, "once, for both calls");
   assert.match(heard(h, sup), /REPORT L1/);
@@ -308,7 +301,7 @@ test("a call that runs longer than a seat can wait is answered once by mail, and
   assert.match((await call("r3", lead, "lead", "report", report)).text, /still working on report/);
   held.release();
   const said = () => errors.mock.calls.map((line) => line.arguments.map(String).join(" ")).join("\n");
-  assert.ok(await within(5000, () => /could not be mailed/.test(said())), "reported, and the desk goes on");
+  await until(t, () => /could not be mailed/.test(said()), "word that the answer could not be mailed");
   const kept = JSON.parse(readFileSync(join(stateRoot(), "intents.json"), "utf-8")) as {
     promised: { agent: string; tool: string }[];
   };
@@ -334,8 +327,10 @@ test("a call that runs longer than a seat can wait is answered once by mail, and
   assert.equal(h.ledger().tasks["L1-T1"]!.silent, 0, "a call still being worked on is not silence");
   assert.doesNotMatch(heard(h, peer), /without calling done or ask/);
   held.release();
-  assert.ok(await within(5000, () => h.ledger().tasks["L1-T1"]!.status === "done"));
-  assert.match(heard(h, lead), new RegExp(`Gate: ${escaped(gate)} passed`));
+  // Its Lead's letter, not the task's status, which is written before that letter is posted.
+  await until(t, () => /HANDBACK L1-T1/.test(heard(h, lead)), "L1-T1's hand-back, mailed to its Lead");
+  assert.equal(h.ledger().tasks["L1-T1"]!.status, "done");
+  assert.match(heard(h, lead), new RegExp(`HANDBACK L1-T1[^]*Gate: ${escaped(gate)} passed`));
 });
 
 test("mail never reaches a running seat inside its turn, whatever its agent: it waits for the turn's end, then comes as one", async (t) => {
