@@ -10,14 +10,32 @@ import { eventsSince } from "../../desk/views/events-since.ts";
 import { seenAt } from "./report-seen.ts";
 import type { Project } from "../../desk/project/project.ts";
 
-/** Which brains read for the project and how that stands, as the last answer the watch kept says; a line by another is not theirs. */
+/**
+ * Which brains read for the project and how that stands, as the last answer the watch kept says; a line by another is
+ * not theirs. A sensor with no key beside a seat is not asked, so the line is the seat's, with the sensor as keyless.
+ */
 function judgeLine(project: Project, team: Team, kit: Kit, now: number): WatchJudge {
-  const { sensor, seat } = team.brains;
-  if (!sensor && !seat) return { label: "", state: "off", minutes: null, detail: null };
+  const { seat } = team.brains;
+  if (!team.brains.sensor && !seat) return { label: "", state: "off", minutes: null, detail: null, keyless: null };
+  const keyless = team.brains.sensor?.key ? undefined : team.brains.sensor;
+  const sensor = keyless ? undefined : team.brains.sensor;
+  if (keyless && !seat)
+    return { label: keyless.sensor.label, state: "nokey", minutes: null, detail: keyless.sensor.key, keyless: null };
   const seatLabel = seat && `the ${kit.roles.find((role) => role.role === seat)?.label ?? seat}`;
   const named = [sensor?.sensor.label, seatLabel].filter(Boolean).join(" and ");
   const label = named.charAt(0).toUpperCase() + named.slice(1);
-  if (sensor && !sensor.key && !seat) return { label, state: "nokey", minutes: null, detail: sensor.sensor.key };
+  const line = answerLine(project, label, sensor?.id, seat, now);
+  return { ...line, keyless: keyless ? { label: keyless.sensor.label, key: keyless.sensor.key } : null };
+}
+
+/** How the brains named `label` last answered, by the last line in assessments.log, if `sensor` or `seat` wrote it. */
+function answerLine(
+  project: Project,
+  label: string,
+  sensor: string | undefined,
+  seat: string | undefined,
+  now: number,
+): Omit<WatchJudge, "keyless"> {
   let last: { at?: string; by?: string; unasked?: string } | undefined;
   for (const kept of lastBytes(join(project.state, "assessments.log"), 16 * 1024)
     .trim()
@@ -30,7 +48,7 @@ function judgeLine(project: Project, team: Team, kit: Kit, now: number): WatchJu
       // A line cut mid-write says nothing of how the brains answer.
     }
   }
-  if (!last?.at || (last.by !== sensor?.id && last.by !== seat))
+  if (!last?.at || (last.by !== sensor && last.by !== seat))
     return { label, state: "waiting", minutes: null, detail: null };
   const minutes = minutesSince(now, last.at);
   return last.unasked

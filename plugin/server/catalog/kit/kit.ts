@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { z } from "zod";
+import { REVIEW_OFF } from "../../../shared/settings.ts";
 import type { Attention } from "../../../shared/views.ts";
 import { DESK_OWNED } from "../../core/paths.ts";
 import { EcosystemFile } from "./schema/ecosystem.ts";
@@ -113,6 +114,8 @@ function loadSensors(dir: string, stateDir?: string): Record<string, SensorSpec>
     for (const name of existsSync(root) ? readdirSync(root).filter((entry) => entry.endsWith(".json")) : []) {
       const sensor = parsed(SensorFile, join(root, name), `${shown}/${name}`);
       if (`${sensor.id}.json` !== name) throw new Error(`${shown}/${name} names itself ${sensor.id}`);
+      if (sensor.id === REVIEW_OFF)
+        throw new Error(`${shown}/${name} takes ${REVIEW_OFF}, the word review's Off is kept as`);
       sensors[sensor.id] = sensor;
     }
   return sensors;

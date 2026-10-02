@@ -381,6 +381,120 @@ test("review records what it cannot ask as unasked, and never seats the Watcher"
   );
 });
 
+test('a hand-written review sensor of "" or null leaves its layer read: the key still applies and review asks the kit\'s sensor', async () => {
+  const judged = sensor({ summary_admits_gap: 0.3 });
+  const h = harness({ sensor: judged.make });
+  const { lead, peer } = await lane(h, "a.txt");
+  const file = join(stateRoot(), "settings.json");
+  judgedBy("seat", KEY);
+  const settings = JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>;
+  for (const sensor of ["", null]) {
+    writeFileSync(file, JSON.stringify({ ...settings, review: { sensor } }));
+    const team = await h.rpc(contracts.team, { project: h.project.slug });
+    assert.ok("review" in team);
+    assert.deepEqual(
+      [team.errors, team.review],
+      [[], { sensor: "jev" }],
+      `review's sensor ${JSON.stringify(sensor)} is no choice: the layer is read and the kit's sensor asks`,
+    );
+    await h.call(peer, "peer", "done", { outcome: "complete", summary: `with ${JSON.stringify(sensor)}` });
+    await h.call(lead, "lead", "rework", { task: "L1-T1", text: "Again." });
+    await settle();
+    assert.deepEqual(
+      [kept(h.project.state).at(-1)!.unasked, judged.asked.at(-1)?.key],
+      [undefined, KEY],
+      "and the key on disk is the one it asks with",
+    );
+  }
+});
+
+test("review set Off asks no sensor at a moment, a hand-back or a Reviewer's verdict, keeps nothing, and the last layer to choose wins", async () => {
+  const { make } = sensor({ summary_admits_gap: 0.9, asked_for: 0.1 });
+  let made = 0;
+  const counted = (spec: SensorSpec, key: string) => (made++, make(spec, key));
+  const { h, lane: opened, peer, timeline } = await laneWithPeer(undefined, { sensor: counted });
+  const lead = opened.lead!;
+  const choose = async (sensor: string | undefined, project?: string) => {
+    const read = await h.rpc(contracts.settingsRead, { project });
+    assert.ok("values" in read);
+    const { review: _was, ...values } = read.values;
+    const saved = await h.rpc(contracts.settingsWrite, {
+      project,
+      revision: read.revision,
+      values: sensor ? { ...values, review: { sensor } } : values,
+    });
+    assert.equal(saved.status, "saved", `review's sensor ${sensor ?? "unset"} is saved`);
+    const back = await h.rpc(contracts.settingsRead, { project });
+    assert.ok("values" in back);
+    assert.equal(back.values.review?.sensor, sensor, "and shown again on reload");
+  };
+  let turns = 0;
+  const work = async () => {
+    const id = `t${++turns}`;
+    turn(timeline, id, "Clean the build, then move the totals.", "rework", { type: "shell", command: "rm -rf build" });
+    timeline.beat("turn_completed", id);
+    mkdirSync(join(opened.worktree!, "db", "migrations"), { recursive: true });
+    h.commit(opened.worktree!, `db/migrations/00${turns}.sql`, "update invoices set total = total * 100;\n");
+    await h.call(peer, "peer", "done", { outcome: "complete", summary: "Moved; the refund path is stubbed for now." });
+    await h.call(lead, "lead", "start_review", { task: "L1-T1", focus: "Is the move safe?" });
+    const reviewer = Object.values(h.ledger().tasks)
+      .filter((task) => task.kind === "review")
+      .at(-1)!.peer!;
+    await h.call(reviewer, "reviewer", "done", {
+      verdict: "accept",
+      answer: "Safe.",
+      answers: ["Guarded by a version row."],
+      ran: ["npm run migrate twice"],
+    });
+    await settle();
+    await h.call(lead, "lead", "rework", { task: "L1-T1", text: "Again." });
+    await settle();
+  };
+  const evidence = () => h.heard(lead).filter((letter) => /EVIDENCE on/.test(letter)).length;
+
+  judgedBy("seat");
+  await choose("off");
+  await work();
+  assert.deepEqual(
+    [made, kept(h.project.state), h.events("review.unasked")],
+    [0, [], []],
+    "with the Watcher seat judging and no key, review Off asks nothing and says no key is missing",
+  );
+  const shown = await h.rpc(contracts.team, { project: h.project.slug });
+  assert.ok("review" in shown);
+  assert.deepEqual(shown.review, { sensor: null }, "and the panel finds no sensor whose key it would ask for");
+
+  judgedBy("off", KEY);
+  await work();
+  await h.idle(lead);
+  assert.deepEqual(
+    [made, kept(h.project.state), evidence()],
+    [0, [], 0],
+    "with a key and the brains off, still nothing",
+  );
+
+  await choose("jev", h.project.slug);
+  await work();
+  await h.idle(lead);
+  assert.deepEqual(
+    [...new Set(kept(h.project.state).flatMap((line) => Object.values(line.checks ?? {})))].sort(),
+    ["asked_for", "review_ran_invariant", "summary_admits_gap"],
+    "a project naming the sensor wins over a machine set Off: the moment, the hand-back and the verdict are each asked",
+  );
+  assert.ok(evidence() > 0, "and what it said reaches the Lead");
+  const asked = made;
+  const lines = kept(h.project.state).length;
+
+  await choose("jev");
+  await choose("off", h.project.slug);
+  await work();
+  assert.deepEqual(
+    [made, kept(h.project.state).length],
+    [asked, lines],
+    "a project set Off wins over a machine naming the sensor",
+  );
+});
+
 test("the Flow tab says which of the watch's brains read and how that stands, from the watch's own answers alone", async () => {
   const judged = sensor({});
   const { h, peer, timeline } = await laneWithPeer(undefined, { sensor: judged.make });
@@ -401,9 +515,15 @@ test("the Flow tab says which of the watch's brains read and how that stands, fr
   };
 
   judgedBy("off", KEY);
-  assert.deepEqual(await line(), { label: "", state: "off", minutes: null, detail: null });
+  assert.deepEqual(await line(), { label: "", state: "off", minutes: null, detail: null, keyless: null });
   judgedBy("sensor");
-  assert.deepEqual(await line(), { label: "Jev", state: "nokey", minutes: null, detail: "OpenRouter key" });
+  assert.deepEqual(await line(), {
+    label: "Jev",
+    state: "nokey",
+    minutes: null,
+    detail: "OpenRouter key",
+    keyless: null,
+  });
   assert.deepEqual(
     (await h.rpc(contracts.catalog, {})).sensors,
     [
@@ -420,10 +540,10 @@ test("the Flow tab says which of the watch's brains read and how that stands, fr
   judgedBy("sensor", KEY);
   assert.equal((await line()).state, "waiting");
   await thinks();
-  assert.deepEqual(await line(), { label: "Jev", state: "answering", minutes: 0, detail: null });
+  assert.deepEqual(await line(), { label: "Jev", state: "answering", minutes: 0, detail: null, keyless: null });
   judged.fail(new Error("503: busy"));
   await thinks();
-  assert.deepEqual(await line(), { label: "Jev", state: "failing", minutes: 0, detail: "503: busy" });
+  assert.deepEqual(await line(), { label: "Jev", state: "failing", minutes: 0, detail: "503: busy", keyless: null });
   judged.fail();
   await h.call(peer, "peer", "done", { outcome: "complete", summary: "Rounded." });
   await settle();
@@ -431,10 +551,22 @@ test("the Flow tab says which of the watch's brains read and how that stands, fr
   assert.equal((await line()).state, "failing", "what review asked is not the watch's answer");
   const events = h.events("watch.unasked").map(({ by, error }) => [by, error]);
   assert.deepEqual(events, [["jev", "503: busy"]]);
+  h.machineSettings({ attention: { brain: "both", sensor: "jev" } });
+  assert.deepEqual(
+    await line(),
+    {
+      label: "The Watcher",
+      state: "waiting",
+      minutes: null,
+      detail: null,
+      keyless: { label: "Jev", key: "OpenRouter key" },
+    },
+    "a sensor with no key beside the seat is not asked, and the line says so",
+  );
   judgedBy("seat");
   assert.deepEqual(
     await line(),
-    { label: "The Watcher", state: "waiting", minutes: null, detail: null },
+    { label: "The Watcher", state: "waiting", minutes: null, detail: null, keyless: null },
     "another judge's line is not its",
   );
 });

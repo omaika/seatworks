@@ -1,7 +1,7 @@
 import { availableParallelism } from "node:os";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Layer } from "../../../shared/settings.ts";
+import { type Layer, REVIEW_OFF } from "../../../shared/settings.ts";
 import type { Attention, Hitl } from "../../../shared/views.ts";
 import type { HarnessSpec, Kit, SensorSpec } from "../kit/kit.ts";
 import { type McpState, resolveMcp } from "./mcp-states.ts";
@@ -19,8 +19,8 @@ type Brains = {
   seat?: string;
 };
 
-/** The sensor that asks review's checks, with its key where the machine keeps one; none when the kit knows no such sensor. */
-type ReviewJudge = { sensor?: { id: string; sensor: SensorSpec; key?: string } };
+/** The sensor that asks review's checks, with its key where the machine keeps one; none when off or the kit knows no such sensor. */
+type ReviewJudge = { off: boolean; sensor?: { id: string; sensor: SensorSpec; key?: string } };
 
 /** The kit as the machine's and the project's settings leave it: each role's seat, the MCP servers, attention and the judges. */
 export type Team = {
@@ -134,23 +134,24 @@ function brainsOf(kit: Kit, attention: Attention, layers: Layer[], errors: strin
   };
 }
 
-/** Review's own sensor, the kit's where no layer names one: the watch's brain never switches it off. */
+/** Review's own sensor, the kit's where no layer names one, or off where the last to choose says so; the watch's brains never decide it. */
 function reviewOf(kit: Kit, layers: Layer[], errors: string[]): ReviewJudge {
   const id =
     layers
       .map((layer) => layer.review?.sensor)
       .filter(Boolean)
       .at(-1) ?? kit.attention.sensor;
+  if (id === REVIEW_OFF) return { off: true };
   const found = kit.sensors[id];
   if (!found) {
     if (id) errors.push(`Review's sensor is ${id}, which is no sensor the kit knows`);
-    return {};
+    return { off: false };
   }
   const key = layers
     .map((layer) => layer.sensor?.[id]?.key)
     .filter(Boolean)
     .at(-1);
-  return { sensor: { id, sensor: found, ...(key ? { key } : {}) } };
+  return { off: false, sensor: { id, sensor: found, ...(key ? { key } : {}) } };
 }
 
 function stripUndefined<T extends object>(value: T | undefined): Partial<T> {

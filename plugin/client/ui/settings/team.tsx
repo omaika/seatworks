@@ -10,13 +10,21 @@ import {
   SettingsSelect,
   SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
-import { type ReactElement, useRef, useState } from "react";
+import { createRef, type ReactElement, type RefObject, useRef, useState } from "react";
 import { Text } from "react-native";
 import { modelsRpc } from "../../../shared/rpc.ts";
-import type { Layer, RoleChoice } from "../../../shared/settings.ts";
+import { type Layer, REVIEW_OFF, type RoleChoice } from "../../../shared/settings.ts";
 import type { CatalogView, ModelsRefreshed, TeamView } from "../../../shared/views.ts";
 import { message } from "../../format/error.ts";
-import { modelRow, setHitl, setLanguage, setReviewSensor, setRole, sourceOf } from "../../model/layer.ts";
+import {
+  modelRow,
+  reviewKeySensors,
+  setHitl,
+  setLanguage,
+  setReviewSensor,
+  setRole,
+  sourceOf,
+} from "../../model/layer.ts";
 import { Rows } from "../kit/card.tsx";
 import { DisclosureList } from "../kit/disclosure.tsx";
 import { JudgeRows, keyRows } from "./judge.tsx";
@@ -238,16 +246,25 @@ function HitlCard(props: Props) {
 /** Inside a reviewing role's line: which sensor asks review's one-condition checks, apart from the watch's brains. */
 function ReviewRows(props: Props & { role: Role }) {
   const { catalog, team, values, machine, layer, disabled, save } = props;
-  const [draft, setDraft] = useState("");
-  const field = useRef<SettingsInputHandle>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const fields = useRef(new Map<string, RefObject<SettingsInputHandle | null>>());
   const chosen = values.review?.sensor ?? (layer === "project" ? machine.review?.sensor : undefined);
-  // The kit's sensor asks when none is chosen, and its key is the one that counts then.
-  const sensor = catalog.sensors.find((entry) => entry.id === (chosen ?? team.review.sensor));
+  const sensors = reviewKeySensors(catalog.sensors, chosen, team.review.sensor, layer);
+  const asks =
+    chosen === REVIEW_OFF
+      ? "one for each check review asks in a project that names it"
+      : "one for each check review asks";
+  const draftOf = (id: string) => {
+    let field = fields.current.get(id);
+    if (!field) fields.current.set(id, (field = createRef()));
+    const setDraft = (text: string) => setDrafts((current) => ({ ...current, [id]: text }));
+    return { typed: (drafts[id] ?? "").trim(), setDraft, field };
+  };
   return (
     <Rows theme={props.theme}>
       <SettingsSelect
         label="Review's checks"
-        hint={`The sensor that asks the one-condition checks a Lead reads as evidence at a hand-back and a review; with no key they are recorded as not asked. ${sourceLabel(
+        hint={`The sensor that asks the one-condition checks a Lead reads as evidence at a hand-back and a review; with no key they are recorded as not asked, and Off asks none, whatever the Watcher's brains read. ${sourceLabel(
           sourceOf(values, machine, (entry) => entry.review?.sensor, layer),
           layer,
         )}.`}
@@ -255,13 +272,12 @@ function ReviewRows(props: Props & { role: Role }) {
         options={[
           { label: "The kit's sensor", value: "" },
           ...catalog.sensors.map((entry) => ({ label: entry.label, value: entry.id })),
+          { label: "Off", value: REVIEW_OFF },
         ]}
         onValueChange={(next) => void save((current) => setReviewSensor(current, next || undefined))}
         disabled={disabled}
       />
-      {sensor
-        ? keyRows({ ...props, sensor }, { typed: draft.trim(), setDraft, field }, "one for each check review asks")
-        : null}
+      {sensors.flatMap((sensor) => keyRows({ ...props, sensor }, draftOf(sensor.id), asks))}
     </Rows>
   );
 }

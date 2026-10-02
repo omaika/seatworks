@@ -92,12 +92,16 @@ export type FlowQuestion = z.infer<typeof FlowQuestion>;
  */
 const WatchCounts = z.object({ told: z.number(), held: z.number(), recorded: z.number(), closed: z.number() });
 export type WatchCounts = z.infer<typeof WatchCounts>;
-/** Who answers the watch's questions, and how that stands: off, a sensor with no key, nothing asked yet, its last answer, or its last failure. */
+/**
+ * Who answers the watch's questions, and how that stands: off, a sensor with no key, nothing asked yet, its last answer,
+ * or its last failure; `keyless` is the sensor beside a seat that cannot be asked for want of its key.
+ */
 const WatchJudge = z.object({
   label: z.string(),
   state: z.enum(["off", "nokey", "waiting", "answering", "failing"]),
   minutes: z.number().nullable(),
   detail: z.string().nullable(),
+  keyless: z.object({ label: z.string(), key: z.string() }).nullable(),
 });
 export type WatchJudge = z.infer<typeof WatchJudge>;
 /**

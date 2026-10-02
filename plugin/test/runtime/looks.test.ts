@@ -32,7 +32,7 @@ function brain(says: Record<string, number>, why: Record<string, string> = {}, a
 }
 
 /** The machine settings read by `mode`'s brains, the sensor with its key. */
-function brains(mode: "sensor" | "seat" | "both"): void {
+function brains(mode: "off" | "sensor" | "seat" | "both"): void {
   const file = join(stateRoot(), "settings.json");
   const settings = JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>;
   writeFileSync(
@@ -188,7 +188,7 @@ test("a Lead's brief is judged once, at the add_tasks that wrote it, on what the
   assert.equal(asked().length, judged, "a look with no decision in it asks nothing of the decision's patterns");
 
   const before = sensed.asked.length;
-  h.machineSettings({ attention: { brain: "off" } });
+  brains("off");
   stream.beat("turn_started", "l3");
   stream.add({ type: "assistant_message", text: "Waiting on the hand-back.", messageId: "l-m3" }, "l3");
   stream.beat("turn_completed", "l3");

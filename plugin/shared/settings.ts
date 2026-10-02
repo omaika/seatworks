@@ -140,8 +140,17 @@ export const AttentionChoice = z.strictObject({
   sensor: z.string().min(1).optional(),
 });
 
-/** Which sensor asks review's checks, apart from the watch's; the machine keeps its key under `sensor`. */
-const ReviewChoice = z.strictObject({ sensor: z.string().min(1).optional() });
+export const REVIEW_OFF = "off";
+
+/** Which sensor asks review's checks, apart from the watch's brains, or REVIEW_OFF for none; the machine keeps its key under `sensor`.
+ * "" or null, written by hand, is no choice, as unset is, rather than a fault that leaves the layer and its key unread. */
+const ReviewChoice = z.strictObject({
+  sensor: z
+    .string()
+    .nullish()
+    .transform((sensor) => sensor || undefined)
+    .optional(),
+});
 
 /** Off, only the concept is the Human's; on, questions may queue for them, at most `questionsPerDay` across this machine. */
 export const HitlChoice = z.strictObject({

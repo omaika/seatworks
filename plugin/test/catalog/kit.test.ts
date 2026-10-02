@@ -177,6 +177,11 @@ const REFUSED: [string, unknown, RegExp][] = [
   ],
   ["catalog/sensor/judge.json", { ...sensor, id: "other" }, /^catalog\/sensor\/judge\.json names itself other$/],
   [
+    "catalog/sensor/off.json",
+    { ...sensor, id: "off" },
+    /^catalog\/sensor\/off\.json takes off, the word review's Off is kept as$/,
+  ],
+  [
     "catalog/checks.json",
     { ...checks, review_ran_invariant: { ...checks.review_ran_invariant, no: 0.9 } },
     /^checks\.json is not as the kit reads it:\n✖ no must sit below yes\n {2}→ at review_ran_invariant$/,

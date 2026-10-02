@@ -1,4 +1,5 @@
 import type { CheckSpec } from "../../catalog/kit/kit.ts";
+import type { Team } from "../../catalog/team/team.ts";
 import { errorText } from "../../core/errors.ts";
 import { daemonLog } from "../../core/logger.ts";
 import type { Answer, Judge, Judgement, Question } from "../../core/ports.ts";
@@ -23,10 +24,9 @@ const REVIEW: Assessments = { log: "reviews", unasked: "review.unasked" };
 
 /** The sensor that asks review's checks, or why none can: no sensor, no key, or a host with no way to ask. */
 function judgeFor(
-  { teamFor, sensorFor }: Pick<DeskServices, "teamFor" | "sensorFor">,
-  project: Project,
+  { sensorFor }: Pick<DeskServices, "sensorFor">,
+  { sensor }: Team["review"],
 ): { id: string; label: string; judge: Judge } | { id: string; unasked: string } {
-  const { sensor } = teamFor(project).review;
   if (!sensor) return { id: "", unasked: "no sensor the kit knows is set to ask review's checks" };
   if (!sensor.key)
     return { id: sensor.id, unasked: `${sensor.sensor.label} has no ${sensor.sensor.key} on this machine` };
@@ -73,8 +73,10 @@ export async function judge(services: Asking, project: Project, found: Case): Pr
 async function ask(services: Asking, project: Project, found: Case): Promise<void> {
   const { kit } = services;
   const asked = Object.entries(found.asked).filter(([, { check }]) => kit.checks[check] !== undefined);
-  if (asked.length === 0) return;
-  const chosen = judgeFor(services, project);
+  const review = services.teamFor(project).review;
+  // Off is the settings' choice, not something missing, so nothing is kept as unasked.
+  if (asked.length === 0 || review.off) return;
+  const chosen = judgeFor(services, review);
   const about = {
     subject: found.subject,
     episode: found.episode,

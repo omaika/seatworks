@@ -1,4 +1,12 @@
-import type { AttentionChoice, HitlChoice, Layer, LevelId, McpChoice, RoleChoice } from "../../shared/settings.ts";
+import {
+  type AttentionChoice,
+  type HitlChoice,
+  type Layer,
+  type LevelId,
+  type McpChoice,
+  REVIEW_OFF,
+  type RoleChoice,
+} from "../../shared/settings.ts";
 
 export type Source = "here" | "machine" | "default";
 
@@ -93,10 +101,21 @@ export function withKey(values: Layer, id: string, key: string | null): Layer {
   return { ...values, sensor: Object.keys(sensor).length > 0 ? sensor : undefined };
 }
 
-/** None goes back to the kit's sensor for review, which the watch's brains never switch off. */
+/** None goes back to the kit's sensor for review; only REVIEW_OFF stops it, never the watch's brains. */
 export function setReviewSensor(values: Layer, sensor: string | undefined): Layer {
   const { review: _was, ...rest } = values;
   return sensor ? { ...rest, review: { sensor } } : rest;
+}
+
+/** The sensors whose key review's line offers: the one that asks, or with review Off on the machine every one, since a project may still name any. */
+export function reviewKeySensors<S extends { id: string }>(
+  sensors: readonly S[],
+  chosen: string | undefined,
+  kits: string | null,
+  layer: "machine" | "project",
+): S[] {
+  if (layer === "machine" && chosen === REVIEW_OFF) return [...sensors];
+  return sensors.filter((entry) => entry.id === (chosen ?? kits));
 }
 
 /** Emptied, no language is set and the Supervisor answers as its prompt has it. */

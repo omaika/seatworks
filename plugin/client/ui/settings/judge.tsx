@@ -52,14 +52,14 @@ export function keyRows(
     });
   };
   const model = (
-    <SettingsRow key="sensor" label="Sensor" hint={`From catalog/sensor. ${sensor.terms}`}>
+    <SettingsRow key={`${sensor.id}:sensor`} label="Sensor" hint={`From catalog/sensor. ${sensor.terms}`}>
       <Text style={{ color: theme.colors.foreground, fontSize: 14 }}>{sensor.model}</Text>
     </SettingsRow>
   );
   if (layer === "project") {
     return [
       <SettingsRow
-        key="key"
+        key={`${sensor.id}:key`}
         label={sensor.key}
         hint={`Kept on this machine for every project. Add, replace or forget it under Machine defaults, on the ${role.label}.`}
       >
@@ -72,7 +72,7 @@ export function keyRows(
   }
   return [
     <SettingsInput
-      key="key"
+      key={`${sensor.id}:key`}
       ref={field}
       label={sensor.key}
       hint={
@@ -85,7 +85,7 @@ export function keyRows(
       disabled={disabled}
     />,
     <SettingsAction
-      key="save"
+      key={`${sensor.id}:save`}
       label={kept ? "Replace the key" : "Save the key"}
       hint={`A key starts paid calls, ${asks}.`}
       actionLabel="Save key"
@@ -95,7 +95,7 @@ export function keyRows(
     ...(kept
       ? [
           <SettingsAction
-            key="forget"
+            key={`${sensor.id}:forget`}
             label="Forget the key"
             hint={`${sensor.label} asks nothing more until there is a key again.`}
             actionLabel="Forget key"

@@ -23,11 +23,21 @@ export function caseLines(cases: WatchCases, judge: string): string[] {
   ]);
 }
 
+type JudgeWords = { title: string; hint: string; tone: "success" | "warning" | "muted" };
+
 /** Who answers the watch's questions and how that stands, in words and a tone; `judgeRole` is the Team chip it is set on. */
-export function judgeWords(
-  judge: WatchJudge,
-  judgeRole: string,
-): { title: string; hint: string; tone: "success" | "warning" | "muted" } {
+export function judgeWords(judge: WatchJudge, judgeRole: string): JudgeWords {
+  const words = brainWords(judge, judgeRole);
+  if (judge.keyless === null) return words;
+  return {
+    title: `${judge.keyless.label} is asked nothing: it has no key. ${words.title}`,
+    hint: `Add its ${judge.keyless.key} on Team, under Machine defaults, on the ${judgeRole}. ${words.hint}`,
+    tone: words.tone === "success" ? "muted" : words.tone,
+  };
+}
+
+/** How the brains that can be asked stand, in words and a tone. */
+function brainWords(judge: WatchJudge, judgeRole: string): JudgeWords {
   const kept = "Its answers are kept in assessments.log; no seat is sent them.";
   if (judge.state === "off")
     return {

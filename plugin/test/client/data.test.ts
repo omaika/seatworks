@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { KEPT, type Layer } from "../../shared/settings.ts";
+import { KEPT, type Layer, REVIEW_OFF } from "../../shared/settings.ts";
 import { laneLine, seatLine } from "../../client/format/flow.ts";
 import { caseLines, incidentLines, judgeWords } from "../../client/format/watch.ts";
 import {
@@ -9,6 +9,7 @@ import {
   modelRow,
   setLanguage,
   nextSeat,
+  reviewKeySensors,
   setLevelSeat,
   setReviewSensor,
   setRole,
@@ -87,6 +88,22 @@ const EDITS: [string, (layer: Layer) => Layer, Layer][] = [
 
 test("a panel edit changes only what it names and keeps the rest of the layer", () => {
   for (const [what, edit, edited] of EDITS) assert.deepEqual(edit(held), edited, what);
+});
+
+test("review's line offers a key row wherever a project's review could ask with it, and none where nothing asks", () => {
+  const sensors = [{ id: "jev" }, { id: "other" }];
+  const rows: [string, string | undefined, "machine" | "project", string[]][] = [
+    ["machine Off still offers every key a project may name", REVIEW_OFF, "machine", ["jev", "other"]],
+    ["a project naming one under machine Off shows that one's", "jev", "project", ["jev"]],
+    ["a project that names none under machine Off asks nothing, so no key row warns", REVIEW_OFF, "project", []],
+    ["no choice falls to the kit's sensor", undefined, "machine", ["other"]],
+  ];
+  for (const [what, chosen, layer, offered] of rows)
+    assert.deepEqual(
+      reviewKeySensors(sensors, chosen, "other", layer).map((entry) => entry.id),
+      offered,
+      what,
+    );
 });
 
 test("re-pasting a server the owner gave to nobody leaves it given to nobody", () => {
@@ -181,7 +198,7 @@ test("a seat waiting on a permission names who answers it, and a landing held be
   assert.deepEqual(laneLine(held, false, outOfLoop), { tone: "wait", text: "held from while you were in" });
 });
 
-const judge = { label: "Jev", minutes: null, detail: null };
+const judge = { label: "Jev", minutes: null, detail: null, keyless: null };
 const kept = "Its answers are kept in assessments.log; no seat is sent them.";
 const JUDGES: [WatchJudge, ReturnType<typeof judgeWords>][] = [
   [
@@ -203,6 +220,29 @@ const JUDGES: [WatchJudge, ReturnType<typeof judgeWords>][] = [
   [
     { ...judge, state: "waiting" },
     { title: "Jev answers the watch's questions", hint: `Nothing has been asked of it yet. ${kept}`, tone: "success" },
+  ],
+  [
+    { ...judge, label: "The Watcher", state: "waiting", keyless: { label: "Jev", key: "OpenRouter key" } },
+    {
+      title: "Jev is asked nothing: it has no key. The Watcher answers the watch's questions",
+      hint: `Add its OpenRouter key on Team, under Machine defaults, on the Judge. Nothing has been asked of it yet. ${kept}`,
+      tone: "muted",
+    },
+  ],
+  [
+    {
+      ...judge,
+      label: "The Watcher",
+      state: "failing",
+      minutes: 4,
+      detail: "503: busy",
+      keyless: { label: "Jev", key: "OpenRouter key" },
+    },
+    {
+      title: "Jev is asked nothing: it has no key. The Watcher is not answering",
+      hint: "Add its OpenRouter key on Team, under Machine defaults, on the Judge. 503: busy. The code's own facts go on; nothing waits for an answer.",
+      tone: "warning",
+    },
   ],
   [
     { ...judge, state: "answering", minutes: 3 },
