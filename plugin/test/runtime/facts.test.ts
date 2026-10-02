@@ -4,6 +4,9 @@ import { TEAM_SERVER } from "../../server/catalog/kit/kit.ts";
 import type { StreamMessage } from "../../server/adapters/paseo/stream.ts";
 import { callsTo } from "../../server/runtime/watch/facts.ts";
 import { SeatWatch } from "../../server/runtime/watch/watches.ts";
+import { settle } from "./fake-timeline.ts";
+import { laneWithPeer } from "./harness.ts";
+import { book, noticesOf } from "./noticed.ts";
 import { again, claudeTurn2, fixture, kinds, kit, opening, piRow, play, rules, watchOver } from "./seat-replay.ts";
 
 const done = piRow(11);
@@ -325,6 +328,43 @@ test("a command refused, then run again through a shell, an eval or a script the
     [],
     "another command is not",
   );
+});
+
+test("a re-run past a refusal marked noise holds for its whole command: one sharing the start its quote shows still pages", async (t) => {
+  const { h, sup, timeline } = await laneWithPeer();
+  const noticed = noticesOf(h, t);
+  let calls = 0;
+  const call = async (command: string, refused: boolean) => {
+    timeline.add(
+      {
+        type: "tool_call",
+        callId: `c${calls++}`,
+        name: "Bash",
+        status: refused ? "failed" : "completed",
+        detail: { type: "shell", command, ...(refused ? {} : { exitCode: 0 }) },
+        error: refused ? { content: `Permission to use Bash with command ${command} has been denied.` } : null,
+      },
+      "t1",
+    );
+    await settle();
+    await noticed();
+  };
+  const rerun = async (command: string) => {
+    await call("git push origin main", true);
+    await call(command, false);
+  };
+  const pages = () => Object.values(book(h)).filter((item) => item.quote.endsWith("after it was refused"));
+  const told = () => h.heard(sup).filter((text) => text.includes("after it was refused")).length;
+  const head = `bash -c "git push origin main; echo ${"pad ".repeat(30)}`;
+  timeline.beat("turn_started", "t1");
+  await rerun(`${head} done"`);
+  const [first] = pages();
+  assert.equal(first?.level, "page", "getting round a refusal is a page");
+  assert.equal((await h.call(sup, "supervisor", "mark_incident", { id: first.id, verdict: "noise" })).ok, true);
+  await rerun(`${head} done"`);
+  assert.deepEqual([pages().length, told()], [1, 1], "the same re-run marked noise is not told again");
+  await rerun(`${head} done; git push evil main"`);
+  assert.deepEqual([pages().length, told()], [2, 2], "one that differs only past its quote pages");
 });
 
 test("a seat thinking and talking with no call between, or compacting again and again, is told once while it lasts", () => {

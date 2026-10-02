@@ -54,6 +54,7 @@ test("what was held because nobody could read it is told once somebody can, and 
   seated(false);
   await notice(h, lane.lead!, "stuck");
   await notice(h, peer, "destructive", "page", "rm -rf lib");
+  await notice(h, lane.lead!, "stuck", "attend", "the same action failing 5 times");
   seated(true);
   await h.tick();
   assert.deepEqual(
@@ -61,6 +62,7 @@ test("what was held because nobody could read it is told once somebody can, and 
     [1, 1],
     "once somebody sits down, all that was held for nobody is told",
   );
+  assert.match(told("I3").join("\n"), /the same action failing 5 times/, "in the latest words it was seen in");
 
   const self = await notice(h, sup, "destructive", "page", "rm -rf build");
   assert.deepEqual(self.sent, [], "an incident is never addressed to the seat it is about");

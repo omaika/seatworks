@@ -51,18 +51,17 @@ export function saidBefore(incidents: Incidents, seat: string, kind: string, quo
 
 const episode = (item: { task?: string; lane?: string }) => item.task ?? item.lane;
 
-/** The same seat, kind and eye, and for a page the same command too, since another may be the dangerous one. */
+/** The same seat and kind, and for a page the same whole command too, since another may be the dangerous one. */
 const alike = (item: Incident, sighting: Sighting) =>
   item.seat === sighting.seat &&
   item.kind === sighting.kind &&
-  Boolean(item.brain) === Boolean(sighting.brain) &&
-  (sighting.level !== "page" || item.quote === sighting.quote);
+  (sighting.level !== "page" || (item.quote === sighting.quote && item.digest === sighting.digest));
 
 /**
  * Already settled as noise: counts the sighting and answers true. `mark_incident` closes an incident, so a standing
  * condition would reopen after every mark. A mark settles its kind on that seat and task, or lane where there is no
- * task, in whatever words; a page only for the command it was told, since another may be the dangerous one. Each eye's
- * marks settle only its own.
+ * task, in whatever words and whichever eye saw it; a page only for the command it was told, since another may be the
+ * dangerous one.
  */
 export function settledAsNoise(incidents: Incidents, sighting: Sighting, now: number): boolean {
   const marked = Object.values(incidents.items).find(
@@ -74,9 +73,14 @@ export function settledAsNoise(incidents: Incidents, sighting: Sighting, now: nu
   return true;
 }
 
-/** Adds a sighting to the open incident it is alike, or opens one: a different command of a page kind pages on its own. */
+/**
+ * Adds a sighting to the open incident it is alike and seen by the same eye, or opens one: a different command of a page
+ * kind pages on its own.
+ */
 export function sight(incidents: Incidents, sighting: Sighting, now: number): { incident: Incident; opened: boolean } {
-  const seen = Object.values(incidents.items).find((item) => item.open && alike(item, sighting));
+  const seen = Object.values(incidents.items).find(
+    (item) => item.open && alike(item, sighting) && Boolean(item.brain) === Boolean(sighting.brain),
+  );
   if (seen) {
     Object.assign(seen, { facts: [...new Set([...seen.facts, ...sighting.facts])], last: now, count: seen.count + 1 });
     if (seen.told === undefined) seen.quote = sighting.quote;

@@ -9,11 +9,13 @@ export type Level = "page" | "attend" | "note";
  * What a watch saw that the desk books as an incident; `theirs` when its quote is only the seat's words or command, and
  * `brain` when a brain read it rather than the code measured it: a brain may add to what the code saw, never stand in for
  * it, and so it `joins` the code's open incident of that kind as evidence rather than opening its own beside it.
+ * `digest` tells apart the whole commands a cut quote cannot.
  */
 export type Finding = {
   kind: string;
   level: Exclude<Level, "note">;
   quote: string;
+  digest?: string;
   facts: string[];
   theirs?: true;
   brain?: true;
@@ -30,6 +32,7 @@ export type Incident = {
   kind: string;
   level: "page" | "attend";
   quote: string;
+  digest?: string;
   theirs?: true;
   brain?: true;
   later?: string;
@@ -128,12 +131,13 @@ const FACTS = {
 
 export type FactKind = keyof typeof FACTS;
 
-export type Fact = { kind: FactKind; level: Level; quote: string; theirs?: true };
+export type Fact = { kind: FactKind; level: Level; quote: string; digest?: string; theirs?: true };
 
-export const fact = (kind: FactKind, quote: string): Fact => ({
+export const fact = (kind: FactKind, quote: string, digest?: string): Fact => ({
   kind,
   level: FACTS[kind].level,
   quote,
+  ...(digest !== undefined && { digest }),
   ...("theirs" in FACTS[kind] ? { theirs: true as const } : {}),
 });
 
@@ -145,8 +149,10 @@ const rank = ({ kind, level }: Finding) =>
 /** What of `facts` asks for attention, as the incident book takes it, a loop before a claim: a note stays on the record. */
 export const findingsOf = (facts: Fact[]): Finding[] =>
   facts
-    .flatMap(({ kind, level, quote, theirs }): Finding[] =>
-      level === "note" ? [] : [{ kind, level, quote, facts: [kind], ...(theirs && { theirs }) }],
+    .flatMap(({ kind, level, quote, digest, theirs }): Finding[] =>
+      level === "note"
+        ? []
+        : [{ kind, level, quote, ...(digest !== undefined && { digest }), facts: [kind], ...(theirs && { theirs }) }],
     )
     .sort((a, b) => rank(a) - rank(b));
 

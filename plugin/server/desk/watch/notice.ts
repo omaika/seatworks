@@ -112,6 +112,7 @@ function openIncidents(
         kind: finding.kind,
         level: finding.level,
         quote: finding.quote,
+        ...(finding.digest !== undefined && { digest: finding.digest }),
         facts: finding.facts,
         ...(finding.theirs && { theirs: finding.theirs }),
         ...(finding.brain && { brain: finding.brain }),
