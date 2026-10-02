@@ -82,8 +82,7 @@ function stepsOf(word: string, bare: string, fold: boolean): Step[] {
     const close = opens ? closing(bare[at + 1] === "!" || bare[at + 1] === "^" ? at + 3 : at + 2) : -1;
     if (bare[at] === "*" && char === "*") {
       if (!steps.at(-1)?.star) steps.push({ star: true });
-    } else if (bare[at] === "?" && char === "?")
-      steps.push({ star: false, literal: false, accepts: (one) => one !== "/" });
+    } else if (bare[at] === "?" && char === "?") steps.push({ star: false, literal: false, accepts: () => true });
     else if (close > 0) {
       steps.push({ star: false, literal: false, accepts: member(text.slice(at + 1, close)) });
       at = close;
@@ -103,7 +102,7 @@ function member(inside: string): (char: string) => boolean {
         found = char >= set[at]! && char <= set[at + 2]!;
         at += 2;
       } else found = char === set[at];
-    return found !== negated && char !== "/";
+    return found !== negated;
   };
 }
 
