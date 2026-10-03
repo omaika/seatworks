@@ -45,18 +45,18 @@ function lookOf(handle: Handle): SeatLook {
 }
 
 /** Paged: an unpaged read is capped by the daemon, and a seat missing from this list is treated as gone, so with no handle it fails. */
-async function openSeats(bound: Bound): Promise<SeatView[]> {
+async function listSeats(bound: Bound, archived: boolean): Promise<SeatView[]> {
   const paseo = reach(bound);
   const found: SeatView[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 20; page++) {
     const result = await paseo.agents.list({
-      filter: { includeArchived: false },
+      filter: { includeArchived: archived },
       page: cursor ? { limit: 200, cursor } : { limit: 200 },
     });
     for (const entry of result.entries) {
       const seat = entry.agent as unknown as SeatView;
-      if (!seat.archivedAt) found.push(seat);
+      if (Boolean(seat.archivedAt) === archived) found.push(seat);
     }
     if (!result.pageInfo?.hasMore || !result.pageInfo.nextCursor) break;
     cursor = result.pageInfo.nextCursor;
@@ -67,7 +67,8 @@ async function openSeats(bound: Bound): Promise<SeatView[]> {
 export function seatsOn(bound: Bound): Seats {
   const ref = (id: string): Handle => reach(bound).agents.ref(id);
   return {
-    open: () => openSeats(bound),
+    open: () => listSeats(bound, false),
+    archived: () => listSeats(bound, true),
     async look(id: string): Promise<SeatLook> {
       const handle = ref(id);
       await handle.refresh();

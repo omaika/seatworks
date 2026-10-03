@@ -278,7 +278,18 @@ export class Runtime implements HostHooks {
       daemonLog.error("could not prepare the state directory:", error);
     }
     for (const problem of this.source.teamFor().errors) daemonLog.error(`settings: ${problem}`);
+    // Not part of what `prepare` returns: the create hook waits on that, and a listing of processes may be slow.
+    void this.host
+      .reached()
+      .then(() => this.sweepArchived())
+      .catch((error: unknown) => daemonLog.error("could not look for what archived seats left running:", error));
     return this.sync.reconcile();
+  }
+
+  /** Seats archived while the plugin was not running never reached `archived`, so what they left is stopped at start. */
+  private async sweepArchived(): Promise<void> {
+    const gone = (await this.host.seats.archived()).filter((seat) => seatOf(this.kit, seat.provider));
+    await this.leftovers.sweepAll(gone.map((seat) => seat.id));
   }
 
   create(config: AgentConfig, env: Record<string, string> = {}): { config: AgentConfig; env: Record<string, string> } {

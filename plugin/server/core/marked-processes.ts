@@ -40,20 +40,23 @@ public static class EnvBlock {
       return bytes == null ? null : Encoding.Unicode.GetString(bytes);
     } finally { Marshal.FreeHGlobal(info); }
   }
-  public static bool Stop(int pid, string entry) {
+  public static bool Stop(int pid, string[] entries) {
     IntPtr handle = OpenProcess(0x0411, false, pid);
     if (handle == IntPtr.Zero) return false;
     try {
       string block = Of(handle);
-      return block != null && Array.IndexOf(block.Split((char)0), entry) >= 0 && TerminateProcess(handle, 1);
+      if (block == null) return false;
+      foreach (string line in block.Split((char)0)) if (Array.IndexOf(entries, line) >= 0) return TerminateProcess(handle, 1);
+      return false;
     } finally { CloseHandle(handle); }
   }
 }
 '@
-$entry = $env:SWEEP_NAME + '=' + $env:SWEEP_VALUE
+[string[]]$entries = @($env:SWEEP_VALUES -split ',' | ForEach-Object { $env:SWEEP_NAME + '=' + $_ })
+$spare = @($env:SWEEP_SPARE -split ',' | ForEach-Object { [int]$_ })
 foreach ($process in Get-Process) {
-  if ($process.Id -eq $PID -or $process.Id -eq [int]$env:SWEEP_DAEMON) { continue }
-  try { if ([EnvBlock]::Stop($process.Id, $entry)) { $process.Id } } catch { }
+  if ($process.Id -eq $PID -or $spare -contains $process.Id) { continue }
+  try { if ([EnvBlock]::Stop($process.Id, $entries)) { $process.Id } } catch { }
 }
 `;
 
@@ -71,75 +74,154 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, signal: Abort
   });
 }
 
-async function onLinux(entry: string): Promise<number[]> {
+async function onLinux(entries: Set<string>, signal: AbortSignal): Promise<number[]> {
   const found: number[] = [];
   for (const name of await readdir("/proc")) {
+    signal.throwIfAborted();
     if (!/^\d+$/.test(name)) continue;
     // A process of another user, or one gone since the listing, has no environment to read.
     const environ = await readFile(`/proc/${name}/environ`, "latin1").catch(() => "");
-    if (environ.split("\0").includes(entry)) found.push(Number(name));
+    if (environ.split("\0").some((line) => entries.has(line))) found.push(Number(name));
   }
   return found;
 }
 
-const PS_FIELDS = ["-o", "pid=,command="];
-
-function byPid(listing: string): Map<string, string> {
-  const rows = new Map<string, string>();
-  for (const line of listing.split("\n")) {
-    const [, pid, rest] = /^\s*(\d+)\s(.*)$/.exec(line) ?? [];
-    if (pid && rest !== undefined) rows.set(pid, rest);
-  }
-  return rows;
-}
+/** macOS pids never pass this. */
+const MAC_PID_MAX = 99_999;
 
 /**
- * `ps -E` prints each command's arguments and then its environment, so the same listing without `-E` says where the
- * environment starts; a row whose arguments changed between the two listings is left alone.
+ * Finds the marked processes by reading each one's environment NUL-separated from the kernel (`sysctl` KERN_PROCARGS2,
+ * called through perl, which ships with macOS), because `ps -E` joins entries with spaces and a value holding
+ * ` NAME=value ` cannot be told from the entry itself. The kernel shows the environment of no restricted process
+ * (/bin/sleep, the shells, tail, perl), to any reader, root included, so a marked one is found by what it is to a
+ * process that is read: its descendants, and what shares its session unless that is the sweeper's or the daemon's own.
+ * A process the kernel does show an environment of is judged by its own entries alone, one with no entries included (its
+ * buffer goes on past the arguments, where a restricted one's ends): only the unreadable are taken in, by descent, and by
+ * session where the session's leader is itself marked or taken and every readable member carries a swept mark, since a
+ * session an old daemon left holds live seats' and the Human's processes too.
+ * Never stopped, listed or walked through are the spared pids and the processes above them (the sweeper's own chain up
+ * to launchd), since a marked one above the daemon would otherwise take every sibling of the plugin with it.
+ * A restricted process left alone by a parent that is gone, in a session of its own, still escapes.
+ * The buffer is `kern.argmax` long, as a longer one is refused. 202 is `__sysctl` and 310 `getsid`; KERN_PROC_PID's
+ * kinfo_proc holds the parent pid at byte 560. A process of another user, or one gone, refuses and is skipped.
  */
-async function onMac(entry: string, signal: AbortSignal): Promise<number[]> {
-  const [withEnv, commands] = await Promise.all([
-    run("ps", ["-axwwE", ...PS_FIELDS], process.env, signal),
-    run("ps", ["-axww", ...PS_FIELDS], process.env, signal),
-  ]);
-  const argv = byPid(commands);
-  return [...byPid(withEnv)].flatMap(([pid, line]) => {
-    const command = argv.get(pid);
-    return command !== undefined && line.startsWith(command) && line.slice(command.length).split(" ").includes(entry)
-      ? [Number(pid)]
-      : [];
-  });
+const MAC_SCRIPT = String.raw`
+my $name = $ENV{SWEEP_NAME};
+my %spare = map { $_ => 1 } split /,/, $ENV{SWEEP_SPARE};
+my %entries = map { ("$name=$_" => 1) } split /,/, $ENV{SWEEP_VALUES};
+$spare{$$} = 1;
+my $max = pack("l", 0);
+my $maxSize = pack("Q", 4);
+my $argmax = pack("i2", 1, 8);
+syscall(202, $argmax, 2, $max, $maxSize, 0, 0) == 0 or die "no argmax\n";
+my $buffer = "\0" x unpack("l", $max);
+my $info = "\0" x 1024;
+my (%parent, %session, %marked, %readable);
+for my $pid (1 .. ${MAC_PID_MAX}) {
+  my $infoSize = pack("Q", length $info);
+  next if syscall(202, pack("i4", 1, 14, 1, $pid), 4, $info, $infoSize, 0, 0) != 0 || unpack("Q", $infoSize) < 564;
+  $parent{$pid} = unpack("l", substr($info, 560, 4));
+  $session{$pid} = syscall(310, $pid);
+  next if $spare{$pid};
+  my $size = pack("Q", length $buffer);
+  next if syscall(202, pack("i3", 1, 49, $pid), 3, $buffer, $size, 0, 0) != 0;
+  my $end = unpack("Q", $size);
+  my $at = index($buffer, "\0", 4);
+  next if $at < 0 || $at >= $end;
+  $at++ while $at < $end && substr($buffer, $at, 1) eq "\0";
+  for (1 .. unpack("l", substr($buffer, 0, 4))) {
+    last if $at >= $end;
+    $at = index($buffer, "\0", $at) + 1;
+  }
+  next if $at >= $end;
+  $readable{$pid} = 1;
+  while ($at < $end) {
+    my $stop = index($buffer, "\0", $at);
+    last if $stop < 0 || $stop == $at;
+    if ($entries{substr($buffer, $at, $stop - $at)}) { $marked{$pid} = 1; last; }
+    $at = $stop + 1;
+  }
+}
+my %safe = (1 => 1);
+for my $start (keys %spare) {
+  for (my $up = $start; $up > 1 && !$safe{$up}; $up = $parent{$up} // 0) { $safe{$up} = 1; }
+}
+delete $marked{$_} for keys %safe;
+my %unmarked = map { $_ => 1 } grep { $readable{$_} && !$marked{$_} } keys %parent;
+my %children;
+push @{ $children{$parent{$_}} }, $_ for keys %parent;
+my %stop = %marked;
+my @queue = keys %marked;
+while (defined(my $pid = shift @queue)) {
+  for my $child (@{ $children{$pid} || [] }) {
+    next if $stop{$child} || $safe{$child} || $unmarked{$child};
+    $stop{$child} = 1;
+    push @queue, $child;
+  }
+}
+my %own = map { $_ => 1 } grep { $_ > 1 } map { $session{$_} // 0 } keys %spare;
+my %shared = map { $_ => 1 } grep { $_ > 1 && !$own{$_} && $stop{$_} } map { $session{$_} } keys %marked;
+delete $shared{$session{$_}} for keys %unmarked;
+for my $pid (keys %parent) {
+  $stop{$pid} = 1 if $shared{$session{$pid}} && !$readable{$pid};
+}
+print "$_\n" for grep { !$safe{$_} } sort { $a <=> $b } keys %stop;
+`;
+
+function pids(listing: string): number[] {
+  return listing.split(/\s+/).flatMap((word) => (/^\d+$/.test(word) ? [Number(word)] : []));
 }
 
-async function onWindows(name: string, value: string, signal: AbortSignal): Promise<number[]> {
+async function onMac(name: string, values: string[], spare: number[], signal: AbortSignal): Promise<number[]> {
+  return pids(await run("perl", ["-e", MAC_SCRIPT], sweepEnv(name, values, spare), signal));
+}
+
+function sweepEnv(name: string, values: string[], spare: number[]): NodeJS.ProcessEnv {
+  return { ...process.env, SWEEP_NAME: name, SWEEP_VALUES: values.join(","), SWEEP_SPARE: spare.join(",") };
+}
+
+async function onWindows(name: string, values: string[], spare: number[], signal: AbortSignal): Promise<number[]> {
   const encoded = Buffer.from(WINDOWS_SCRIPT, "utf16le").toString("base64");
   const listing = await run(
     "powershell.exe",
     ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
-    { ...process.env, SWEEP_NAME: name, SWEEP_VALUE: value, SWEEP_DAEMON: String(process.pid) },
+    sweepEnv(name, values, spare),
     signal,
   );
-  return listing.split(/\s+/).flatMap((word) => (/^\d+$/.test(word) ? [Number(word)] : []));
+  return pids(listing);
 }
 
 function gone(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === "ESRCH";
 }
 
-/** Stops every process, whatever started or orphaned it, whose environment carries `name=value`, never this one; returns the pids stopped. */
-export async function stopMarked(name: string, value: string, signal: AbortSignal): Promise<number[]> {
-  if (process.platform === "win32") return (await onWindows(name, value, signal)).filter((pid) => pid !== process.pid);
-  const entry = `${name}=${value}`;
-  const found = process.platform === "darwin" ? await onMac(entry, signal) : await onLinux(entry);
+/**
+ * Stops every process, whatever started or orphaned it, whose environment carries `name=` and one of `values` (none
+ * holding a comma), never this one nor its parent, the daemon; returns the pids stopped. One listing serves them all.
+ * A value the plugin's own environment carries is skipped: everything the daemon started inherited it, and not all of
+ * that is a seat's.
+ */
+export async function stopMarked(name: string, asked: string[], signal: AbortSignal): Promise<number[]> {
+  const values = asked.filter((value) => value !== process.env[name]);
+  if (values.length < asked.length)
+    daemonLog.info(`left alone what carries ${name}=${process.env[name]}: the daemon's own`);
+  if (values.length === 0) return [];
+  const spare = [process.pid, process.ppid];
+  const found =
+    process.platform === "win32"
+      ? await onWindows(name, values, spare, signal)
+      : process.platform === "darwin"
+        ? await onMac(name, values, spare, signal)
+        : await onLinux(new Set(values.map((value) => `${name}=${value}`)), signal);
   const stopped: number[] = [];
-  for (const pid of found.filter((pid) => pid !== process.pid)) {
+  for (const pid of found.filter((pid) => !spare.includes(pid))) {
     if (signal.aborted) break;
     try {
       process.kill(pid, "SIGKILL");
       stopped.push(pid);
     } catch (error) {
       // Gone between the listing and the kill is what was wanted.
-      if (!gone(error)) daemonLog.error(`could not stop process ${pid} carrying ${name}=${value}:`, error);
+      if (!gone(error)) daemonLog.error(`could not stop process ${pid} carrying ${name}:`, error);
     }
   }
   return stopped;

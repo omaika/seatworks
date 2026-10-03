@@ -81,6 +81,8 @@ export type ChatCard = { id: string; kind: string; version: number; data: unknow
 
 export type Seats = {
   open(): Promise<SeatView[]>;
+  /** The agents Paseo keeps archived. */
+  archived(): Promise<SeatView[]>;
   look(id: string): Promise<SeatLook>;
   /** Never into a running turn, unless `into` cuts that turn short for it. */
   send(id: string, text: string, kinds: string[], into?: "interrupt"): Promise<void>;
