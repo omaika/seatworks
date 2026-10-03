@@ -49,6 +49,7 @@ const MAC_PID_MAX = 99_999;
  * Never listed or walked through are the spared pids and the processes above them (the finder's own chain up to launchd),
  * since a marked one above the daemon would otherwise name the daemon's own tree.
  * A restricted process left alone by a parent that is gone still escapes.
+ * A command's control characters become spaces, so a newline or tab in an argument cannot split a record.
  * The buffer is `kern.argmax` long, as a longer one is refused. 202 is `__sysctl`; KERN_PROC_PID's kinfo_proc holds the
  * parent pid at byte 560. A process of another user, or one gone, refuses and is skipped.
  */
@@ -109,14 +110,17 @@ while (defined(my $pid = shift @queue)) {
     push @queue, $child;
   }
 }
-print "$_\t$command{$_}\n" for sort { $a <=> $b } keys %found;
+for (sort { $a <=> $b } keys %found) {
+  (my $line = $command{$_}) =~ s/[\x00-\x1f\x7f]/ /g;
+  print "$_\t$line\n";
+}
 `;
 
 async function onMac(entry: string, spare: number[], signal: AbortSignal): Promise<Marked[]> {
   const env = { ...process.env, FIND_ENTRY: entry, FIND_SPARE: spare.join(",") };
   return (await run("perl", ["-e", MAC_SCRIPT], env, signal)).split("\n").flatMap((line) => {
     const [pid, command] = line.split("\t");
-    return pid ? [{ pid: Number(pid), command: command ?? "" }] : [];
+    return pid && /^\d+$/.test(pid) ? [{ pid: Number(pid), command: command ?? "" }] : [];
   });
 }
 
@@ -135,5 +139,6 @@ export async function findMarked(name: string, value: string, signal: AbortSigna
   const entry = `${name}=${value}`;
   if (process.platform === "win32") return [];
   const found = process.platform === "darwin" ? await onMac(entry, spare, signal) : await onLinux(entry, spare, signal);
-  return found.filter(({ pid }) => !spare.includes(pid));
+  // A line break in an argument would otherwise start a line of its own in whatever prints the command.
+  return found.map(({ pid, command }) => ({ pid, command: command.replaceAll(/\p{Cc}/gu, " ") }));
 }

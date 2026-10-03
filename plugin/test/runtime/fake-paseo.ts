@@ -77,6 +77,13 @@ export function fakeConfig(initial: DaemonConfig = {}) {
   return { api, held: () => held, patches, configured };
 }
 
+let idMark = "";
+
+/** Makes the fake's agent ids unique to this process, for a test file whose ids mark real processes other runs could list too. */
+export function markAgentIdsPerRun(): void {
+  idMark = `${process.pid}-`;
+}
+
 /** Paseo as the harness runs it: its agents, workspaces and timelines in memory, answering as the daemon would. */
 export function fakePaseo() {
   const config = fakeConfig();
@@ -146,7 +153,7 @@ export function fakePaseo() {
     prompt?: string,
     labels: Record<string, string> = {},
   ) => {
-    const id = `agent-${++count}`;
+    const id = `agent-${idMark}${++count}`;
     agents.set(id, {
       id,
       provider,

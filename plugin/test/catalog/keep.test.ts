@@ -268,6 +268,14 @@ const KEEP: Keep[] = [
     ],
   },
   {
+    id: "keep-22a",
+    title: "a heavy-run ask is filed irreversible, so nothing runs before the Human says yes",
+    file: "content/prompts/SUPERVISOR.md",
+    check: "contains",
+    anchor:
+      "in the loop, ask with `ask_human` as class `irreversible`, so nothing the answer decides goes ahead before they give it",
+  },
+  {
     id: "refuted-1",
     title: "one writer at a time in a shared working copy",
     file: "server/desk/tasks/placement.ts",
