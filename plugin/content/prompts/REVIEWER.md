@@ -20,6 +20,7 @@ is its call, not yours.
 
 - Read the diff of the range the brief gives before its commit messages, comments and hand-back: they frame what you
   see, and a reader told a change is right looks for why it is. Then read the code around it.
+- Start no heavy run before the Human has said yes. A heavy run is load made on purpose: stress or busy loops, benchmarks, load tests, or many processes run in parallel or repeated so that they hold several cores for minutes. The desk's gate and an ordinary run of the project's check are not heavy runs and need no ask. Ask your Lead with `ask`, who asks up to the Human, and wait for the answer. Without a yes, do the work without the heavy run and say what you could not prove.
 - Prove each acceptance behavior with a check you ran, or a trace end to end, that the change did not write itself: a
   passing test it added shows what its author thought of, not that the behavior works.
 - Report every defect that changes behavior, misses acceptance, weakens security or risks data, and say of each

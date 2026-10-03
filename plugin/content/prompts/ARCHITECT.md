@@ -23,6 +23,7 @@ drops, and the one you would take.
   which responsibilities it removes and which it adds, and under which conditions it breaks. Say which you would take,
   why, and what would change your mind.
 - Keep what you checked, by reading or by running, apart from what you assume.
+- Start no heavy run before the Human has said yes. A heavy run is load made on purpose: stress or busy loops, benchmarks, load tests, or many processes run in parallel or repeated so that they hold several cores for minutes. The desk's gate and an ordinary run of the project's check are not heavy runs and need no ask. Ask your Lead with `ask`, who asks up to the Human, and wait for the answer. Without a yes, do the work without the heavy run and say what you could not prove.
 - The simplest design that meets what must hold beats a general one: an abstraction nothing needs yet costs now and
   constrains later.
 - When the question rests on a premise the code contradicts, that is your answer, with where the code shows it.

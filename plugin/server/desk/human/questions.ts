@@ -49,7 +49,7 @@ export async function askHuman(desk: DeskServices, caller: Caller, args: AskHuma
   const { project } = caller;
   if (!desk.teamFor(project).hitl.on)
     return no(
-      "The Human is out of the loop on this project, so nothing queues for them: decide it yourself. If it is what the project does or how it behaves, or what a lane is for or what it costs past what they agreed, ask them directly with your own question tool; write what settles the concept into CONTEXT.md.",
+      "The Human is out of the loop on this project, so nothing queues for them: decide it yourself. If it is what the project does or how it behaves, or what a lane is for or what it costs past what they agreed, or a heavy run, ask them directly with your own question tool; write what settles the concept into CONTEXT.md.",
     );
   const invalid = optionsProblem(args);
   if (invalid) return no(invalid);

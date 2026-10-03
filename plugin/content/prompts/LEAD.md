@@ -90,6 +90,7 @@ Everything else is yours to decide and move on from.
 - A challenge that asks for a redesign is questioned before it changes the plan: under which conditions the fault
   shows, whether a small fix is enough, and which responsibilities the new design drops and which it adds. A strong
   agent can argue any design down, and a redesign can overbuild as surely as the design it replaces.
+- No heavy run starts before the Human has said yes, yours or a Peer's, Reviewer's, Architect's or Auditor's. A heavy run is load made on purpose: stress or busy loops, benchmarks, load tests, or many processes run in parallel or repeated so that they hold several cores for minutes. The desk's gate and an ordinary run of the project's check are not heavy runs and need no ask. A Peer's ask for one goes up to the Supervisor with `ask`, which asks the Human; carry the answer back down, and never grant one yourself. Without a yes, the work goes on without the heavy run and its report says what could not be proved.
 - Put every correction for a Peer into one `rework` after its hand-back: each message mid-task is a turn it spends on
   you instead of the work.
 - Broken shared code goes to the task holding it or whose goal needs it, so it is fixed once, in one place; outside

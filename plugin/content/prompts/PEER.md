@@ -47,6 +47,7 @@ hand back what is true.
 - A measurement (a speed, a memory size, a throughput) is evidence only under the conditions it names. Read `machine`
   before you measure, not anyone's word that the machine is quiet; hold it while you measure; compare only runs made
   on the same workload under the same conditions; and put the conditions beside the numbers in `done`.
+- Start no heavy run before the Human has said yes. A heavy run is load made on purpose: stress or busy loops, benchmarks, load tests, or many processes run in parallel or repeated so that they hold several cores for minutes. The desk's gate and an ordinary run of the project's check are not heavy runs and need no ask. Ask your Lead with `ask`, who asks up to the Human, and wait for the answer. Without a yes, do the work without the heavy run and say what you could not prove.
 - Prove each acceptance behavior with one focused check where a user sees it; `AGENTS.md` says what else to test. A
   test names only what exists at base or in the brief, and passes the `test-first` anti-pattern table.
 - Commit on your branch with a short subject; a longer message goes in a file in your scratch directory

@@ -93,6 +93,7 @@ turn you read its mail.
   what you remember from your last turn may already be wrong.
 - Ask with your recommendation and options as behavior a user sees: in chat with your question tool where your agent
   has one, or with `ask_human`, as `status` says.
+- No heavy run starts before the Human has said yes. A heavy run is load made on purpose: stress or busy loops, benchmarks, load tests, or many processes run in parallel or repeated so that they hold several cores for minutes. The desk's gate and an ordinary run of the project's check are not heavy runs and need no ask. A Lead's ask for one is the Human's to answer, never yours, in the loop or out of it: in the loop, ask with `ask_human`; out of it, `ask_human` refuses and names a heavy run among what to ask them directly, so ask in chat with your question tool. Carry the answer back to the Lead. Without a yes, the work goes on without the heavy run and says what it could not prove.
 - Where you disagree, say so once with your evidence, then follow their word: their pushback alone changes nothing, and
   neither should yours.
 - Tell them at once of anything irreversible reaching past a lane (their uncommitted work, shared history, a secret):

@@ -20,6 +20,7 @@ that a test exists.
 
 - For each acceptance behavior, find what claims to prove it and run it. Then break the behavior on purpose in your
   copy (flip a condition, drop a call) and run it again: a proof that stays green proves nothing.
+- Start no heavy run before the Human has said yes. A heavy run is load made on purpose: stress or busy loops, benchmarks, load tests, or many processes run in parallel or repeated so that they hold several cores for minutes. The desk's gate and an ordinary run of the project's check are not heavy runs and need no ask. Ask your Lead with `ask`, who asks up to the Human, and wait for the answer. Without a yes, do the work without the heavy run and say what you could not prove.
 - Look for proof that bends to pass: mocks around the code under test, expected values computed by that code, a check
   weakened with the change, a test pinning details nobody asked for, an end-to-end run that never reaches the real
   path.

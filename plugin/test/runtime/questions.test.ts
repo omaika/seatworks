@@ -141,14 +141,14 @@ test("the Human's daily allowance of questions counts every project, on the Repo
   assert.equal(counted.numbers[0]!.value, "4 of 3");
 });
 
-test("with the Human out of the loop nothing queues for them: the Supervisor decides, or asks them directly about the concept", async () => {
+test("with the Human out of the loop nothing queues for them: the Supervisor decides the rest, and asks them directly about the concept and a heavy run", async () => {
   const { h, sup } = await laneWithPeer();
   const asked = await h.call(sup, "supervisor", "ask_human", packet());
   assert.equal(asked.ok, false);
   assert.match(asked.text, /out of the loop on this project, so nothing queues for them: decide it yourself/);
   assert.match(
     asked.text,
-    /or what a lane is for or what it costs past what they agreed, ask them directly with your own question tool; write what settles the concept into CONTEXT\.md/,
+    /or what a lane is for or what it costs past what they agreed, or a heavy run, ask them directly with your own question tool; write what settles the concept into CONTEXT\.md/,
   );
   assert.deepEqual(h.ledger().questions, {});
 });
