@@ -463,6 +463,14 @@ test("review set Off asks no sensor at a moment, a hand-back or a Reviewer's ver
   const shown = await h.rpc(contracts.team, { project: h.project.slug });
   assert.ok("review" in shown);
   assert.deepEqual(shown.review, { sensor: null }, "and the panel finds no sensor whose key it would ask for");
+  assert.deepEqual(shown.errors, [], "and the team carries no error");
+  const flowed = await h.rpc(contracts.flow, { project: h.project.slug });
+  assert.ok("watch" in flowed);
+  assert.deepEqual(
+    [flowed.watch.judge.keyless, flowed.watch.judge.state, flowed.watch.judge.detail],
+    [null, "waiting", null],
+    "and the watch's brains name no sensor, so none is keyless or missing its key",
+  );
 
   judgedBy("off", KEY);
   await work();

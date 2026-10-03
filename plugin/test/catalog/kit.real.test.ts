@@ -414,6 +414,27 @@ test("the desk names each seat's fixed choices from the kit: who writes and with
   assert.deepEqual(choices("peer"), {}, "a seat is named choices only for tools it has");
 });
 
+test("each role on the claude agent defaults to the model the Human named: Opus 5.5 as Paseo names it, no [1m], and Sonnet 5.5 for the rest", () => {
+  const { roles } = resolveTeam(loadKit(PLUGIN));
+  const opus = "claude-opus-5-5";
+  const sonnet = "claude-sonnet-5-5";
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(roles).map(([name, seat]) => [name, [seat.harness.id, seat.model?.id]])),
+    Object.fromEntries(
+      Object.entries({
+        supervisor: opus,
+        lead: opus,
+        reviewer: opus,
+        architect: opus,
+        peer: sonnet,
+        auditor: sonnet,
+        watcher: sonnet,
+        "second-reviewer": sonnet,
+      }).map(([name, model]) => [name, ["claude", model]]),
+    ),
+  );
+});
+
 test("a second reviewer seats as the Reviewer on the same agent, with another model, so two lenses are not one model twice", () => {
   const kit = loadKit(PLUGIN);
   const team = resolveTeam(kit);
@@ -422,7 +443,6 @@ test("a second reviewer seats as the Reviewer on the same agent, with another mo
     [second!.role.prompt, second!.role.tools, second!.role.can, second!.harness.id],
     [first!.role.prompt, first!.role.tools, first!.role.can, first!.harness.id],
   );
-  assert.notEqual(second!.model?.id, first!.model?.id);
   const shown = describeTeam(kit, resolveTeam(kit, { mcp: { "code-search": { enabled: true } } })).roles;
   assert.deepEqual(
     shown["second-reviewer"]!.tools,
@@ -462,6 +482,7 @@ test("the preset reads what the watch sees with both brains: the kit's sensor si
   const { brains } = resolveTeam(loadKit(PLUGIN));
   assert.deepEqual([brains.mode, brains.sensor?.id, brains.seat], ["both", "jev", "watcher"]);
   assert.equal(brains.sensor?.key, undefined, "a sensor with no key asks nothing until the owner gives one");
+  assert.equal(new URL(brains.sensor!.sensor.url).host, "openrouter.ai", "Jev is asked over OpenRouter");
 });
 
 test("every role can be pointed at one agent alone, and what a fresh machine's agent still waits for is a model", () => {

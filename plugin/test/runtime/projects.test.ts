@@ -53,6 +53,18 @@ test("two projects on one daemon keep their own settings, task ids and letters",
   assert.equal(h.ledger(other).tasks["L1-T1"]!.status, "stalled");
 });
 
+test("a claude role set to Sonnet 5.5, which Paseo's list offers, seats on it", async () => {
+  const h = harness();
+  const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
+  const shown = await h.rpc(contracts.settingsRead, { project: h.project.slug });
+  const values = { roles: { lead: { harness: "claude", model: "claude-sonnet-5-5" } } };
+  const saved = await h.rpc(contracts.settingsWrite, { project: h.project.slug, revision: shown.revision, values });
+  assert.equal(saved.status, "saved", JSON.stringify(saved));
+  await h.call(sup, "supervisor", "open_lane", { title: "Numbers", outcome: "a.txt gains words", ...scope });
+  const lead = h.ledger().lanes.L1!.lead!;
+  assert.equal(h.agents.get(lead)!.provider, "sw2-lead-claude/claude-sonnet-5-5");
+});
+
 test("attaching a project again with a new Seatworks block tells whoever supervises it to have AGENTS.md committed", async () => {
   const h = harness();
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");

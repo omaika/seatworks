@@ -206,3 +206,16 @@ test("nothing reaches a seat that names or quotes an open incident about it from
   assert.match((await h.call(sup, "supervisor", "answer", { ask: "A1", text: "Half up. Also I1." })).text, refusal);
   assert.equal((await h.call(lane.lead!, "lead", "answer", { ask: "A1", text: "Half up, I1 aside." })).ok, true);
 });
+
+test("a page and an attend incident seen together are told to the Supervisor page first", async () => {
+  const { h, sup, peer } = await laneWithPeer();
+  await h.runtime.desk.notice(h.project, { id: peer, provider: h.agents.get(peer)!.provider, title: peer }, [
+    { kind: "stuck", level: "attend", quote: "the same action failing 3 times", facts: ["stuck"] },
+    { kind: "destructive", level: "page", quote: "rm -rf build", facts: ["destructive"] },
+  ]);
+  const order = h
+    .heard(sup)
+    .join("\n")
+    .match(/INCIDENT I\d \((\w+), (page|attend)\)/g);
+  assert.deepEqual(order, ["INCIDENT I2 (destructive, page)", "INCIDENT I1 (stuck, attend)"]);
+});

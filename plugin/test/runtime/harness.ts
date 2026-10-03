@@ -53,7 +53,15 @@ export function repo(): { root: string; git: (cwd: string, ...args: string[]) =>
 const kit = loadKit(join(dirname(fileURLToPath(import.meta.url)), "..", ".."));
 const thinking = ["low", "medium", "high"].map((id) => ({ id, label: id }));
 applyModels(kit, {
-  claude: { at: "", error: null, models: [{ id: "claude-opus-5", label: "Opus 5", thinkingOptions: thinking }] },
+  claude: {
+    at: "",
+    error: null,
+    models: [
+      { id: "claude-opus-5", label: "Opus 5", thinkingOptions: thinking },
+      { id: "claude-opus-5-5", label: "Opus 5.5", thinkingOptions: thinking },
+      { id: "claude-sonnet-5-5", label: "Sonnet 5.5", thinkingOptions: thinking },
+    ],
+  },
 });
 
 export const ideCalls: { kind: "open" | "sync" | "close"; path: string }[] = [];

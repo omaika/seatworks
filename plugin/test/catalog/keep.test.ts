@@ -23,6 +23,29 @@ function denies(text: string, tool: string): boolean {
   return (JSON.parse(text) as { permissions?: { deny?: string[] } }).permissions?.deny?.includes(tool) === true;
 }
 
+const NOT_HEAVY = "The desk's gate and an ordinary run of the project's check are not heavy runs and need no ask.";
+
+/** The heavy-run rule is the Human's word and only prompt text carries it: the plugin cannot tell a run is heavy before it starts. */
+function heavyRun(id: string, role: string, anchor: string, route: string): Keep {
+  return {
+    id,
+    title: `no heavy run before the Human says yes, and the ask goes up the chain (${role})`,
+    file: `content/prompts/${role}.md`,
+    check: "contains",
+    anchor,
+    structure: [
+      "the heavy-run definition, the gate and check exemption, or the ask route is gone",
+      (text) =>
+        text.includes("A heavy run is load made on purpose: stress or busy loops, benchmarks, load tests,") &&
+        text.includes("hold several cores for minutes. " + NOT_HEAVY) &&
+        text.includes(route),
+    ],
+  };
+}
+
+const PEER_ROUTE = "Ask your Lead with `ask`, who asks up to the Human, and wait for the answer.";
+const PEER_ANCHOR = "Start no heavy run before the Human has said yes.";
+
 const KEEP: Keep[] = [
   {
     id: "keep-01a",
@@ -267,6 +290,16 @@ const KEEP: Keep[] = [
       (text) => ["Workflow", "SendMessage", "ListAgents", "TaskOutput", "TaskStop"].every((tool) => denies(text, tool)),
     ],
   },
+  heavyRun("keep-22a", "PEER", PEER_ANCHOR, PEER_ROUTE),
+  heavyRun("keep-22b", "REVIEWER", PEER_ANCHOR, PEER_ROUTE),
+  heavyRun("keep-22c", "ARCHITECT", PEER_ANCHOR, PEER_ROUTE),
+  heavyRun("keep-22d", "AUDITOR", PEER_ANCHOR, PEER_ROUTE),
+  heavyRun(
+    "keep-22e",
+    "LEAD",
+    "No heavy run starts before the Human has said yes, yours or a Peer's",
+    "never grant one yourself.",
+  ),
   {
     id: "keep-22a",
     title: "a heavy-run ask is filed irreversible, so nothing runs before the Human says yes",
