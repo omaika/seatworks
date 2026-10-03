@@ -45,6 +45,7 @@ type Kind =
   | "lapsed"
   | "later"
   | "leadgone"
+  | "leftovers"
   | "merge"
   | "message"
   | "notstarted"

@@ -1,3 +1,4 @@
+import type { Marked } from "../../core/marked-processes.ts";
 import { TEAM_SERVER } from "../../catalog/kit/kit.ts";
 import type { PendingPermission } from "../../core/ports.ts";
 import { clip } from "../../core/text.ts";
@@ -90,6 +91,22 @@ export const seatLetters = {
       reader === "lead"
         ? "Nothing restarts it, and without a hand-back it cannot be accepted: reseat it for a fresh Peer on its branch and copy, which keeps what it committed, or cut it."
         : LEAD_GONE,
+    );
+  },
+
+  /** What an archived seat left running: the desk stops nothing, and the command lines are those processes' own text. */
+  leftovers(agent: string, lane: string | undefined, task: string | undefined, found: Marked[]): Letter {
+    const whose = [lane && `lane ${lane}`, task && `task ${task}`].filter(Boolean).join(", ");
+    const lines = [
+      `LEFTOVERS: ${found.length === 1 ? "a process" : `${found.length} processes`} carrying the id of archived seat ${agent}${whose ? ` (${whose})` : ""} still run.`,
+      "",
+      ...found.map(({ pid, command }) => `- pid ${pid}: ${clip(command || "(command unknown)", 300)}\n  kill ${pid}`),
+    ];
+    return mail(
+      "leftovers",
+      [agent, ...found.map(({ pid }) => pid)],
+      lines.join("\n"),
+      "Tell the Human which of these are left, with each pid, what it runs and its kill line; they decide, and nothing is stopped for them. A seat may miss some, never name one that is not its own.",
     );
   },
 

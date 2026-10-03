@@ -53,6 +53,8 @@ import { Watches } from "./watch/watches.ts";
 import { watchView } from "./panel/watch-view.ts";
 import { Watching } from "./watching.ts";
 import { Leftovers } from "./seat/leftovers.ts";
+import type { Marked } from "../core/marked-processes.ts";
+import { seatLetters } from "../desk/letters/seat-letters.ts";
 import { ProjectRegistry } from "./project-registry.ts";
 
 type RuntimeOptions = {
@@ -278,18 +280,17 @@ export class Runtime implements HostHooks {
       daemonLog.error("could not prepare the state directory:", error);
     }
     for (const problem of this.source.teamFor().errors) daemonLog.error(`settings: ${problem}`);
-    // Not part of what `prepare` returns: the create hook waits on that, and a listing of processes may be slow.
-    void this.host
-      .reached()
-      .then(() => this.sweepArchived())
-      .catch((error: unknown) => daemonLog.error("could not look for what archived seats left running:", error));
     return this.sync.reconcile();
   }
 
-  /** Seats archived while the plugin was not running never reached `archived`, so what they left is stopped at start. */
-  private async sweepArchived(): Promise<void> {
-    const gone = (await this.host.seats.archived()).filter((seat) => seatOf(this.kit, seat.provider));
-    await this.leftovers.sweepAll(gone.map((seat) => seat.id));
+  /** Tells whoever supervises the seat's lane what its archived seat left running; the Human decides what to do of it. */
+  private async reportLeftovers(project: Project, agentId: string, found: Marked[]): Promise<void> {
+    const ledger = loadLedger(project.state);
+    const bound = ledger.agents[agentId];
+    const lane = ledger.lanes[bound?.lane ?? ""];
+    const to = await this.desk.supervisorFor(project, lane?.opener);
+    const posted = await this.desk.post(to, seatLetters.leftovers(agentId, bound?.lane, bound?.task, found));
+    if (posted === "nobody") daemonLog.info(`${project.slug}: nobody is seated to hear what ${agentId} left running`);
   }
 
   create(config: AgentConfig, env: Record<string, string> = {}): { config: AgentConfig; env: Record<string, string> } {
@@ -306,7 +307,10 @@ export class Runtime implements HostHooks {
     this.outbox.archived(agent.id);
     this.turns.forget(agent.id);
     this.watches.drop(agent.id);
-    if (seatOf(this.kit, agent.provider)) this.leftovers.schedule(agent.id);
+    if (seatOf(this.kit, agent.provider)) {
+      const project = projectOf(agent.cwd);
+      this.leftovers.schedule(agent.id, (found) => this.reportLeftovers(project, agent.id, found));
+    }
     this.desk.archived(projectOf(agent.cwd), agent.id, this.watches.watched(agent.provider));
   }
 
