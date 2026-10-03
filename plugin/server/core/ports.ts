@@ -142,6 +142,8 @@ export type AgentConfig = {
 export type SessionOpen = {
   agentId: string;
   reason: "create" | "resume" | "refresh" | "import";
+  /** `history`: Paseo loads the agent only to show its past, and no agent runs. */
+  purpose: "interactive" | "history";
   provider: string;
   cwd: string;
   env: Record<string, string>;

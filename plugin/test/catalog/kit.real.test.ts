@@ -117,7 +117,14 @@ function seatsOnEveryRole(home: string): { name: string; harness: string; settin
       const dir = seatDir(kit, role, harness, home, project);
       const provider = providerId(kit, role.role, id);
       const config = applyRole(kit, team, { provider, cwd: project.root }, () => "PROMPT", project.state, servers);
-      const request = { agentId: "a", reason: "create" as const, provider, cwd: project.root, env: {} };
+      const request = {
+        agentId: "a",
+        reason: "create" as const,
+        purpose: "interactive" as const,
+        provider,
+        cwd: project.root,
+        env: {},
+      };
       const env = seatEnv(kit, request, dir, project).env;
       const name = `the ${role.role} on ${id}`;
       assert.ok(config.systemPrompt, `${name} starts with its prompt`);

@@ -77,6 +77,7 @@ test("a seat's line to the desk carries its choices and its calls, and a call st
   h.runtime.sessionOpen({
     agentId: lead,
     reason: "create",
+    purpose: "interactive",
     provider: seat.provider,
     cwd: h.root,
     env: { SEATWORKS_DESK_KEY: "k-lead" },
@@ -195,6 +196,7 @@ test("a seat Paseo starts again after it was archived is served nothing, and tol
     h.runtime.sessionOpen({
       agentId: "agent-9",
       reason: key ? "create" : "resume",
+      purpose: "interactive",
       provider: "sw2-lead-claude",
       cwd: h.root,
       env: key ? { SEATWORKS_DESK_KEY: key } : {},

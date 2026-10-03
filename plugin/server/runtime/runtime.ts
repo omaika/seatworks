@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Kit, SensorSpec } from "../catalog/kit/kit.ts";
+import { seatOf } from "../catalog/kit/roles.ts";
 import type { ModelCache } from "../catalog/paseo/models.ts";
 import { type IndexedProxy, choicesFor, indexedProxies } from "../catalog/seat/servers.ts";
 import { placeGuides, sweepSnapshots } from "../catalog/seat/snapshots.ts";
@@ -51,6 +52,7 @@ import { PermissionWaits } from "./permission-waits.ts";
 import { Watches } from "./watch/watches.ts";
 import { watchView } from "./panel/watch-view.ts";
 import { Watching } from "./watching.ts";
+import { Leftovers } from "./seat/leftovers.ts";
 import { ProjectRegistry } from "./project-registry.ts";
 
 type RuntimeOptions = {
@@ -75,6 +77,7 @@ export class Runtime implements HostHooks {
   private readonly patrol: Patrol;
   private readonly cards: ChatCards;
   private readonly watches: Watches;
+  private readonly leftovers = new Leftovers();
   private readonly watching: Watching;
   private readonly sync: ProviderSync;
   private readonly launch: SeatLaunch;
@@ -292,6 +295,7 @@ export class Runtime implements HostHooks {
     this.outbox.archived(agent.id);
     this.turns.forget(agent.id);
     this.watches.drop(agent.id);
+    if (seatOf(this.kit, agent.provider)) this.leftovers.schedule(agent.id);
     this.desk.archived(projectOf(agent.cwd), agent.id, this.watches.watched(agent.provider));
   }
 
@@ -303,11 +307,13 @@ export class Runtime implements HostHooks {
   dispose(): void {
     this.socket.close();
     this.watches.dispose();
+    this.leftovers.dispose();
     this.clock.stop();
     this.desk.dispose();
   }
 
   sessionOpen(request: SessionOpen): SessionOpen {
+    if (request.purpose === "interactive") this.leftovers.cancel(request.agentId);
     return this.launch.sessionOpen(request);
   }
 

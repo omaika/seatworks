@@ -260,6 +260,7 @@ test("a seat's git works only in its own copy of the project: the Human's checko
   const { env } = h.runtime.sessionOpen({
     agentId: "peer",
     reason: "create",
+    purpose: "interactive",
     provider: "sw2-peer-claude",
     cwd: mine,
     env: {},
