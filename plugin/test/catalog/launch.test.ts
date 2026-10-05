@@ -129,7 +129,10 @@ test("a seat is handed its servers where its agent takes them at launch, its own
     "the caller's servers stay beside the seat's",
   );
   assert.deepEqual(at(lead.providerOptions, "additionalDirectories"), ["/elsewhere", "/repo"]);
-  assert.deepEqual(at(lead.providerOptions, "settings.sandbox.filesystem.allowWrite"), ["/tmp", "/state/repo/plans"]);
+  assert.deepEqual(at(lead.providerOptions, "settings.sandbox.filesystem.allowWrite"), [
+    "/tmp",
+    join("/state/repo", "plans"),
+  ]);
   const again = applyRole(
     kit,
     team,
@@ -145,7 +148,7 @@ test("a seat is handed its servers where its agent takes them at launch, its own
     ],
     [
       ["/elsewhere", "/repo"],
-      ["/tmp", "/state/repo/plans"],
+      ["/tmp", join("/state/repo", "plans")],
     ],
     "a seat opened again is not handed either twice",
   );
@@ -167,15 +170,15 @@ test("a seat is handed its servers where its agent takes them at launch, its own
       ),
     );
   assert.ok(
-    granted("lead").includes("/state/repo/ultra-review"),
+    granted("lead").includes(join("/state/repo", "ultra-review")),
     "the ultra-review scripts write their reports from the Lead's shell",
   );
   assert.ok(
-    granted("supervisor").includes("/state/repo/CONTEXT.md"),
+    granted("supervisor").includes(join("/state/repo", "CONTEXT.md")),
     "the Supervisor writes the project's concept as the Human settles it",
   );
   assert.ok(
-    !granted("supervisor").includes("/state/repo/checkpoints.log"),
+    !granted("supervisor").includes(join("/state/repo", "checkpoints.log")),
     "a record a skill reads is not one it writes",
   );
   assert.deepEqual(granted("peer"), [], "and a role that declares no writes is granted none");
@@ -195,7 +198,7 @@ test("a Claude seat's file tools are kept off what the desk owns and what sets u
     ).permissions?.deny ?? [];
   const denied = (tool: string, path: string) =>
     deny.some((rule) => rule.startsWith(`${tool}(`) && matchesGlob(path, rule.slice(tool.length + 1, -1)));
-  const machine = stateRoot("~");
+  const machine = stateRoot("~").replaceAll("\\", "/");
   const project = `${machine}/projects/shop-1a2b`;
   const home = (path: string) => path.replace(/^HOME/, "~");
   const backup = "settings.json.bak-20260925-120000";
@@ -287,7 +290,8 @@ test("a seat's session gets its harness's environment, its config directory, pro
     cwd: "/repo",
     env: { KEEP: "1", PATH: "/usr/bin", TMPDIR: "/scratch" },
   };
-  const next = seatEnv(kit, request, "/seats/peer-omp-repo", { root: "/repo", state: "/state/repo" }, "/state/bin");
+  const shim = { bin: "/state/bin", bash: "C:\\Git\\usr\\bin\\bash.exe" };
+  const next = seatEnv(kit, request, "/seats/peer-omp-repo", { root: "/repo", state: "/state/repo" }, shim);
   assert.deepEqual(
     next.env,
     {
@@ -305,12 +309,24 @@ test("a seat's session gets its harness's environment, its config directory, pro
     },
     "Paseo may run one agent server for every seat of a harness, so only the session carries the seat's own environment; on Windows the scratch folder goes by the names its own tools read there too",
   );
+  const lead = seatEnv(
+    kit,
+    { ...request, provider: "sw2-lead-claude" },
+    "/seats/lead-claude-repo",
+    { root: "/repo", state: "/state/repo" },
+    shim,
+  );
+  assert.equal(
+    lead.env.CLAUDE_CODE_GIT_BASH_PATH,
+    shim.bash,
+    "an agent that takes its Git Bash by name is given the one that keeps the shim first, and one that takes none is given none",
+  );
   const windows = seatEnv(
     kit,
     { ...request, env: { Path: "C:\\Windows", TEMP: "C:\\Temp", Tmp: "C:\\Temp", TMPDIR: "/scratch" } },
     "/seats/peer-omp-repo",
     { root: "/repo", state: "/state/repo" },
-    "/state/bin",
+    { bin: "/state/bin" },
   );
   const spelled = (name: string) => Object.keys(windows.env).filter((key) => key.toUpperCase() === name);
   assert.deepEqual(

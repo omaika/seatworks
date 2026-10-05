@@ -96,12 +96,22 @@ export function executableIn(dirs: string[], name: string): string | undefined {
   return undefined;
 }
 
-/** How to start `name` from `dirs`: on Windows an npm-installed command is a .cmd, which only a shell starts, its path quoted. */
-export function commandIn(dirs: string[], name: string): { file: string; shell: boolean } {
+export type Invocation = { file: string; args: string[]; windowsVerbatimArguments: boolean };
+
+/**
+ * How to start `name` from `dirs` with `args`: on Windows an npm-installed command is a .cmd, which only cmd.exe starts, so
+ * the whole line goes to it quoted, as Node's own shell option would join the words unquoted.
+ */
+export function commandIn(dirs: string[], name: string, args: string[] = []): Invocation {
   const found = executableIn(dirs, name) ?? name;
-  return process.platform === "win32" && /\.(cmd|bat)$/i.test(found)
-    ? { file: `"${found}"`, shell: true }
-    : { file: found, shell: false };
+  if (process.platform !== "win32" || !/\.(cmd|bat)$/i.test(found))
+    return { file: found, args, windowsVerbatimArguments: false };
+  const line = [found, ...args].map((word) => `"${word.replaceAll('"', '""')}"`).join(" ");
+  return {
+    file: process.env.ComSpec ?? "cmd.exe",
+    args: ["/d", "/s", "/c", `"${line}"`],
+    windowsVerbatimArguments: true,
+  };
 }
 
 export function pluginDir(configPath = paseoConfigPath()): string | undefined {

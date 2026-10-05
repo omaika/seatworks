@@ -146,11 +146,11 @@ export async function applyUpdate(ctx: UpdateContext): Promise<UpdateView> {
 
 export function npmInstall(dir: string): Promise<string | undefined> {
   return new Promise((resolve) => {
-    const npm = commandIn([dirname(nodeBin()), ...pathDirs()], "npm");
+    const npm = commandIn([dirname(nodeBin()), ...pathDirs()], "npm", ["install", "--no-audit", "--no-fund"]);
     execFile(
       npm.file,
-      ["install", "--no-audit", "--no-fund"],
-      { cwd: dir, timeout: 300_000, shell: npm.shell },
+      npm.args,
+      { cwd: dir, timeout: 300_000, windowsVerbatimArguments: npm.windowsVerbatimArguments },
       (error, _stdout, stderr) =>
         resolve(error ? String(stderr).trim().split("\n").slice(-3).join("\n") || error.message : undefined),
     );
@@ -160,11 +160,11 @@ export function npmInstall(dir: string): Promise<string | undefined> {
 /** After the answer is on its way: the reload stops the runtime that is sending it. */
 export function reloadSoon(): void {
   setTimeout(() => {
-    const paseo = commandIn(pathDirs(), "paseo");
+    const paseo = commandIn(pathDirs(), "paseo", ["plugin", "reload", PLUGIN_ID]);
     execFile(
       paseo.file,
-      ["plugin", "reload", PLUGIN_ID],
-      { timeout: 60_000, shell: paseo.shell },
+      paseo.args,
+      { timeout: 60_000, windowsVerbatimArguments: paseo.windowsVerbatimArguments },
       (error, _stdout, stderr) => {
         if (error) daemonLog.error("plugin reload after the update failed:", String(stderr) || error.message);
       },

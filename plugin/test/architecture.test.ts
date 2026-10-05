@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, posix } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -53,7 +53,7 @@ function codeIn(dir: string): string[] {
   if (!statSync(join(PLUGIN, dir)).isDirectory()) return /\.(ts|tsx|mjs|js)$/.test(dir) ? [dir] : [];
   return readdirSync(join(PLUGIN, dir))
     .filter((name) => !["node_modules", "content", "fixtures"].includes(name))
-    .flatMap((name) => codeIn(join(dir, name)));
+    .flatMap((name) => codeIn(posix.join(dir, name)));
 }
 
 function bound(name: ts.BindingName): string[] {
@@ -78,7 +78,7 @@ function read(path: string): Source {
   const line = (node: ts.Node) => file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
   const target = (spec: ts.Expression) => {
     const named = (spec as ts.StringLiteral).text;
-    return named.startsWith(".") ? relative(PLUGIN, resolve(PLUGIN, dirname(path), named)) : named;
+    return named.startsWith(".") ? posix.join(posix.dirname(path), named) : named;
   };
   const source: Source = {
     imports: [],

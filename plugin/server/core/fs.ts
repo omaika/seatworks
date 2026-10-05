@@ -55,7 +55,8 @@ export function present(path: string): boolean {
 export function landsAt(path: string): string {
   let landed;
   try {
-    landed = realpathSync(path);
+    // Only the native call names a Windows 8.3 short name in full.
+    landed = process.platform === "win32" ? realpathSync.native(path) : realpathSync(path);
   } catch {
     // Nothing there to canonicalise, so what the path says stands for where it lands.
     landed = resolve(path);

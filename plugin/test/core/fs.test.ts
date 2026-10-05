@@ -32,10 +32,12 @@ import { tempDir } from "../tempdir.ts";
 
 /** What Windows lets reach `path`, read through PowerShell because Node can neither read an access list nor write one. */
 function accessList(path: string): { own: boolean; added: string[] } {
+  // Started from PowerShell 7, the path it leaves for modules names its own, which Windows PowerShell cannot load.
+  const { PSModulePath: _, ...env } = process.env;
   const sddl = execFileSync(
     "powershell.exe",
     ["-NoProfile", "-NonInteractive", "-Command", `(Get-Acl -LiteralPath '${path}').Sddl`],
-    { encoding: "utf-8" },
+    { encoding: "utf-8", env },
   ).trim();
   // O:...G:...D:<flags><entries>S:..., each entry a bracketed row whose second field holds its flags, ID marking one inherited.
   const dacl = /D:([A-Z]*)((?:\([^)]*\))*)/.exec(sddl);
@@ -158,11 +160,14 @@ test("the Windows way of linking: a junction retargeted, a file shared by a seco
   assert.equal(ensureLink(toDir, two), true, "and retargeted when it leads elsewhere");
   assert.equal(isLink(toDir), true);
 
-  assert.equal(
-    ensureLink(toDir, join(root, "TWO")),
-    false,
-    "and left alone when that same folder is spelled in another case, as Windows spells one back",
-  );
+  // Only a file system that folds case, as Windows' does, finds the folder by another spelling.
+  if (present(join(root, "TWO"))) {
+    assert.equal(
+      ensureLink(toDir, join(root, "TWO")),
+      false,
+      "and left alone when that same folder is spelled in another case, as Windows spells one back",
+    );
+  }
 
   const [a, b] = [join(root, "a.json"), join(root, "b.json")];
   writeFileSync(a, "a");

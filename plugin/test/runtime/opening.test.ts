@@ -480,9 +480,11 @@ test("the Supervisor's status names the Human's uncommitted files as they are: a
   const sup = h.add("sw2-supervisor-claude/claude-opus-5", h.root, "sup");
   await h.call(sup, "supervisor", "set_project", { base: "main", gate: GATE_PASSES });
   writeFileSync(join(h.root, "my notes.txt"), "half done\n");
-  h.git(h.root, "mv", "a.txt", "moved -> here.txt");
+  // Windows allows no ">" in a name, so only POSIX can show a name holding git's own rename arrow.
+  const moved = process.platform === "win32" ? "moved here.txt" : "moved -> here.txt";
+  h.git(h.root, "mv", "a.txt", moved);
   const status = (await h.call(sup, "supervisor", "status", {})).text;
-  assert.match(status, /with 2 uncommitted files: moved -> here\.txt, my notes\.txt\./);
+  assert.ok(status.includes(`with 2 uncommitted files: ${moved}, my notes.txt.`), status);
 });
 
 test("the Human's own words a lane comes from reach its Lead beside the Supervisor's reading of them, and only words they wrote", async () => {

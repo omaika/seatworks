@@ -1,7 +1,7 @@
 import { execFile, execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { devNull } from "node:os";
-import { join } from "node:path";
+import { join, normalize } from "node:path";
 
 type Run = { code: number; stdout: string; stderr: string };
 
@@ -325,7 +325,8 @@ export function gitCommonDir(cwd: string): string | undefined {
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-    return out || undefined;
+    // Git writes a Windows path with forward slashes, so a root read from it would not match one the platform wrote.
+    return out ? normalize(out) : undefined;
   } catch {
     return undefined;
   }

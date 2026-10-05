@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import type { TestContext } from "node:test";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadKit } from "../../server/catalog/kit/kit.ts";
 import { executableIn, pathDirs } from "../../server/core/paths.ts";
-import { seatBin } from "../../server/catalog/seat/seat-bin.ts";
+import { plainBash, seatBin } from "../../server/catalog/seat/seat-bin.ts";
 import { harness } from "../runtime/harness.ts";
 import { tempDir } from "../tempdir.ts";
 
@@ -41,17 +41,15 @@ function pathFirst(dir: string): NodeJS.ProcessEnv {
 
 /**
  * The shells a seat's own tools run a command line in, each with a word that puts a command second: cmd on Windows,
- * beside the Git Bash that reads the script where it is on PATH, sh elsewhere, and PowerShell 7 where it is installed,
- * which claude and codex run commands in on Windows. The bin directory goes first on PATH. Git for Windows leaves its
- * usr/bin off PATH unless its installer was told otherwise, so a run that reaches no sh, or no PowerShell, says which
- * shell nothing exercised: a green job that quietly proved less is worse than one that says so.
+ * beside the Git Bash the desk names to an agent that takes one, sh elsewhere, and PowerShell 7 where it is installed,
+ * which claude and codex run commands in on Windows. The bin directory goes first on PATH. A run that reaches no Git
+ * Bash, or no PowerShell, says which shell nothing exercised: a green job that quietly proved less is worse than one
+ * that says so.
  */
 function shellsAt(dir: string, t: TestContext) {
-  const sh = WIN ? (executableIn(pathDirs(), "sh") ?? executableIn(pathDirs(), "bash")) : "/bin/sh";
+  const sh = WIN ? plainBash(dirname(dir)) : "/bin/sh";
   if (!sh)
-    t.diagnostic(
-      "no sh or bash on PATH: nothing ran the extensionless script Git Bash reads, only the batch file cmd finds",
-    );
+    t.diagnostic("no Git for Windows bash: nothing ran the extensionless script Git Bash reads, only the batch file");
   const pwsh = executableIn(pathDirs(), "pwsh");
   if (!pwsh) t.diagnostic("no pwsh on PATH: nothing ran a git typed into PowerShell");
   const forms = [

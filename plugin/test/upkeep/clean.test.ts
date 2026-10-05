@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -65,7 +65,10 @@ function otherSpellings(dir: string, alias: string): { label: string; root: stri
   makeLink(alias, dir);
   const spellings = [{ label: "alias", root: alias }];
   if (process.platform === "win32") {
-    const short = execFileSync("cmd", ["/c", `for %I in ("${dir}") do @echo %~sI`], { encoding: "utf-8" }).trim();
+    const short = spawnSync("cmd", ["/d", "/s", "/c", `"for %I in ("${dir}") do @echo %~sI"`], {
+      encoding: "utf-8",
+      windowsVerbatimArguments: true,
+    }).stdout.trim();
     if (short && short !== dir) spellings.push({ label: "short", root: short });
     spellings.push({ label: "case", root: join(dirname(dir), basename(dir).toUpperCase()) });
   }

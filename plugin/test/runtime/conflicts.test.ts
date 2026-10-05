@@ -74,7 +74,8 @@ test("a base that conflicts with a lane leaves nothing in its copy, its Lead has
     taking.branch,
     "on its own branch, where the merge is its own",
   );
-  assert.notEqual(spawnSync("git", ["-C", copy, "merge", "main"]).status, 0, "the same conflict, now the task's");
+  spawnSync("git", ["-C", copy, "-c", "user.name=t", "-c", "user.email=t@x", "merge", "main"]);
+  assert.equal(underWay(h, copy), true, "the same conflict, now the task's");
   writeFileSync(join(copy, "a.txt"), "one\nboth sides\nthree\n");
   h.git(copy, "commit", "-qam", "Take main in");
   await h.call(taking.peer!, "peer", "done", { outcome: "complete", summary: "main taken in" });

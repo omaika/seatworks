@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client, SdkErrorCode, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
@@ -25,7 +25,8 @@ function gitOut(args, cwd = process.cwd()) {
   }
 }
 
-const root = gitOut(["rev-parse", "--show-toplevel"])?.trim() || process.cwd();
+// Git writes a Windows path with forward slashes; the backend is given the platform's own spelling.
+const root = normalize(gitOut(["rev-parse", "--show-toplevel"])?.trim() || process.cwd());
 const text = (value, isError = false) => ({ content: [{ type: "text", text: value }], isError });
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const replyText = (result) => (result?.content ?? []).map((part) => part.text ?? "").join("\n");

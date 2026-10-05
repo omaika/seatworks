@@ -55,7 +55,11 @@ test("a command is found and started as the platform finds and starts it: bare o
 
   saying("darwin", () => {
     assert.equal(executableIn([dir], "git"), undefined, "no extension is added off Windows");
-    assert.deepEqual(commandIn([dir], "node.CMD"), { file: cmd, shell: false }, "and no shell runs it");
+    assert.deepEqual(
+      commandIn([dir], "node.CMD", ["-v"]),
+      { file: cmd, args: ["-v"], windowsVerbatimArguments: false },
+      "and no shell runs it",
+    );
   });
 
   saying("win32", () => {
@@ -63,14 +67,22 @@ test("a command is found and started as the platform finds and starts it: bare o
     assert.equal(executableIn([dir], "git.EXE"), exe, "a name with an extension of its own is left alone");
     assert.equal(executableIn([dir], "node"), cmd, "in PATHEXT's order, whichever extension is there");
     assert.deepEqual(
-      commandIn([dir], "node"),
-      { file: `"${cmd}"`, shell: true },
-      "a .cmd, which npm installs a command as, only a shell starts, its path quoted against a space in it",
+      commandIn([dir], "node", ["plugin", "a b", 'say "hi"']),
+      {
+        file: process.env.ComSpec ?? "cmd.exe",
+        args: ["/d", "/s", "/c", `""${cmd}" "plugin" "a b" "say ""hi""""`],
+        windowsVerbatimArguments: true,
+      },
+      "a .cmd, which npm installs a command as, only cmd.exe starts, each word quoted against a space in it",
     );
-    assert.deepEqual(commandIn([dir], "git"), { file: exe, shell: false }, "a real executable is started directly");
+    assert.deepEqual(
+      commandIn([dir], "git", ["status"]),
+      { file: exe, args: ["status"], windowsVerbatimArguments: false },
+      "a real executable is started directly",
+    );
     assert.deepEqual(
       commandIn([dir], "missing"),
-      { file: "missing", shell: false },
+      { file: "missing", args: [], windowsVerbatimArguments: false },
       "and a name nowhere on PATH as it is",
     );
   });

@@ -24,7 +24,7 @@ function placed(writes: string[], kind: string, name: string): { at: string } | 
     };
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name))
     return { refused: `${name} is not one file name: no folders in it, like cart-plan.md.` };
-  return { at: join(kind, name) };
+  return { at: `${kind}/${name}` };
 }
 
 export const note = defineTool({

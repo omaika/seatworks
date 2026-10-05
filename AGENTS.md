@@ -62,7 +62,9 @@ The plugin **serves** SLP so it works better with Paseo. It must **never constra
   against mistakes, not intent: what git itself starts (hooks, `rebase --exec`, `bisect run`) and a
   git named by its full path run the real git. On Windows it catches git run through a shell, which
   finds its batch file or its Git Bash script, but not git spawned directly as a process, which runs
-  the real git; the same holds for the `gh` and `paseo` a seat's `PATH` refuses. So a writing seat
+  the real git; the same holds for the `gh` and `paseo` a seat's `PATH` refuses. Git's own
+  `bin\bash.exe` puts Git's git first on `PATH`, so an agent that takes its Git Bash by its harness's
+  `bashEnv` is given `usr\bin\bash.exe` instead; one that starts the other by itself runs the real git. So a writing seat
   always stands on its task's branch, where it may merge, rebase, reset or cherry-pick; each role's
   own rules refuse those four to seats that do not write, on every agent but Pi. Only when
   `SEATWORKS_WORKTREE` is set, as the desk sets it to each seat's own copy, does the shim also refuse

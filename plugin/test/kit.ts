@@ -63,6 +63,7 @@ export function makeKit(): Kit {
     label: "Claude Code",
     baseProvider: "claude",
     configDirEnv: "CLAUDE_CONFIG_DIR",
+    bashEnv: "CLAUDE_CODE_GIT_BASH_PATH",
     profileRoot: "HOME/.claude/profiles",
     contextFile: "CLAUDE.md",
     skillsDir: "skills",

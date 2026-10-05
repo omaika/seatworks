@@ -170,7 +170,7 @@ export function escapes(path: string, rules: Rules): boolean {
 
 function outside(path: string, rules: Rules): boolean {
   if (!path || /\s/.test(path) || !rules.cwd) return false;
-  const rel = isAbsolute(path) ? relative(rules.cwd, path) : normalize(path);
+  const rel = (isAbsolute(path) ? relative(rules.cwd, path) : normalize(path)).split(sep).join("/");
   // The temp directory is scratch only outside the copy: a copy that lies in it is still read by its scope.
   if (rel.startsWith("..")) return !(rules.temp && isAbsolute(path) && !relative(rules.temp, path).startsWith(".."));
   // A Lead holds no product file: the lane's code is its Peers' to write.

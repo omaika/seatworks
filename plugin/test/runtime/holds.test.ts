@@ -125,7 +125,7 @@ test("a Peer writing past where it was pointed is noted, not stopped: at hand-ba
   await settle();
   const facts = h.events("watch.fact").filter((event) => event.fact === "outside-scope");
   assert.deepEqual(
-    facts.map((event) => `${event.agent === own!.peer ? "own" : "side"} ${event.quote.split("/").at(-1)}`).sort(),
+    facts.map((event) => `${event.agent === own!.peer ? "own" : "side"} ${event.quote.split(/[\\/]/).at(-1)}`).sort(),
     ["own d.txt", "side a.txt"],
   );
 
@@ -259,7 +259,7 @@ test("a copy the desk made is locked in git, marked as the desk's, while its wor
     h
       .git(h.root, "worktree", "list", "--porcelain")
       .split("\n\n")
-      .find((entry) => entry.includes(`/${copy.split("/").slice(-2).join("/")}\n`));
+      .find((entry) => entry.includes(`/${copy.split(/[\\/]/).slice(-2).join("/")}\n`));
   assert.match(listed() ?? "", /\nlocked seatworks: the working copy of L1-T1 A, which the desk removes itself$/);
   assert.throws(
     () => h.git(h.root, "worktree", "remove", copy),
