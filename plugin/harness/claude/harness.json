@@ -4,6 +4,7 @@
   "baseProvider": "claude",
   "profileRoot": "HOME/.claude/profiles",
   "configDirEnv": "CLAUDE_CONFIG_DIR",
+  "bashEnv": "CLAUDE_CODE_GIT_BASH_PATH",
   "skillsDir": "skills",
   "sandboxedOn": ["darwin", "linux"],
   "timeline": {

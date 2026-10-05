@@ -290,7 +290,8 @@ test("a seat's session gets its harness's environment, its config directory, pro
     cwd: "/repo",
     env: { KEEP: "1", PATH: "/usr/bin", TMPDIR: "/scratch" },
   };
-  const next = seatEnv(kit, request, "/seats/peer-omp-repo", { root: "/repo", state: "/state/repo" }, "/state/bin");
+  const shim = { bin: "/state/bin", bash: "C:\\Git\\usr\\bin\\bash.exe" };
+  const next = seatEnv(kit, request, "/seats/peer-omp-repo", { root: "/repo", state: "/state/repo" }, shim);
   assert.deepEqual(
     next.env,
     {
@@ -308,12 +309,24 @@ test("a seat's session gets its harness's environment, its config directory, pro
     },
     "Paseo may run one agent server for every seat of a harness, so only the session carries the seat's own environment; on Windows the scratch folder goes by the names its own tools read there too",
   );
+  const lead = seatEnv(
+    kit,
+    { ...request, provider: "sw2-lead-claude" },
+    "/seats/lead-claude-repo",
+    { root: "/repo", state: "/state/repo" },
+    shim,
+  );
+  assert.equal(
+    lead.env.CLAUDE_CODE_GIT_BASH_PATH,
+    shim.bash,
+    "an agent that takes its Git Bash by name is given the one that keeps the shim first, and one that takes none is given none",
+  );
   const windows = seatEnv(
     kit,
     { ...request, env: { Path: "C:\\Windows", TEMP: "C:\\Temp", Tmp: "C:\\Temp", TMPDIR: "/scratch" } },
     "/seats/peer-omp-repo",
     { root: "/repo", state: "/state/repo" },
-    "/state/bin",
+    { bin: "/state/bin" },
   );
   const spelled = (name: string) => Object.keys(windows.env).filter((key) => key.toUpperCase() === name);
   assert.deepEqual(

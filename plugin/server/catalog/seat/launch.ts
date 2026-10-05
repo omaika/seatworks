@@ -118,14 +118,15 @@ function setAlone(env: Record<string, string>, name: string, value: string): voi
 /**
  * The harness's own env too, as Paseo may run one agent server for every seat of a harness; TMPDIR, where every seat is told
  * its scratch files go, is always set, as Linux services and Windows often have none, and on Windows TEMP and TMP, which
- * its tools and shells read there, name it too. `shim` goes first on the PATH Paseo gave the seat.
+ * its tools and shells read there, name it too. `shim.bin` goes first on the PATH Paseo gave the seat, and `shim.bash` is
+ * the Git Bash an agent that takes one by its harness's `bashEnv` runs commands in, which keeps that PATH as it is.
  */
 export function seatEnv(
   kit: Kit,
   request: SessionOpen,
   seatPath: string,
   project: { root: string; state: string },
-  shim?: string,
+  shim?: { bin: string; bash?: string },
 ): SessionOpen {
   const seat = seatOf(kit, request.provider);
   if (!seat) return request;
@@ -146,7 +147,8 @@ export function seatEnv(
   if (process.platform === "win32") for (const name of ["TEMP", "TMP"]) setAlone(env, name, scratch);
   if (shim) {
     const given = Object.entries(request.env).find(([key]) => key.toUpperCase() === "PATH")?.[1];
-    setAlone(env, "PATH", [shim, given ?? process.env.PATH].filter(Boolean).join(delimiter));
+    setAlone(env, "PATH", [shim.bin, given ?? process.env.PATH].filter(Boolean).join(delimiter));
+    if (shim.bash && seat.harness.bashEnv) setAlone(env, seat.harness.bashEnv, shim.bash);
   }
   return { ...request, env };
 }

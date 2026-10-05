@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { writeConfigAtomic } from "../../core/config-file.ts";
 import { executableIn, nodeBin, pathDirs, stateRoot } from "../../core/paths.ts";
 import type { Kit } from "../kit/kit.ts";
@@ -21,6 +21,21 @@ function realGit(skip: string): string | undefined {
     pathDirs().filter((dir) => dir && dir !== skip),
     WIN ? "git.exe" : "git",
   );
+}
+
+/**
+ * On Windows, the bash of Git for Windows that keeps a seat's PATH as given: the bash.exe in Git's bin folder puts Git's
+ * own git first on PATH before it starts, past the shim, while usr/bin's is that same bash started directly.
+ */
+export function plainBash(root = stateRoot()): string | undefined {
+  if (!WIN) return undefined;
+  let dir = realGit(join(root, "bin"));
+  for (let up = 0; dir && up < 4; up++) {
+    dir = dirname(dir);
+    const bash = join(dir, "usr", "bin", "bash.exe");
+    if (existsSync(bash)) return bash;
+  }
+  return undefined;
 }
 
 /**

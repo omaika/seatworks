@@ -13,6 +13,7 @@ export const HarnessFile = z
     label: text,
     baseProvider: text,
     configDirEnv: text,
+    bashEnv: text.optional(),
     profileRoot: text,
     contextFile: text.optional(),
     skillsDir: text,

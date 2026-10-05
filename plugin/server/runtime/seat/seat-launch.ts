@@ -3,7 +3,7 @@ import { rulesFor } from "../../catalog/team/team.ts";
 import { type Kit, type RoleSpec, SEAT_KEY } from "../../catalog/kit/kit.ts";
 import { seatOf } from "../../catalog/kit/roles.ts";
 import { applyRole, seatEnv } from "../../catalog/seat/launch.ts";
-import { seatBin } from "../../catalog/seat/seat-bin.ts";
+import { plainBash, seatBin } from "../../catalog/seat/seat-bin.ts";
 import { seedRecords } from "../../catalog/seat/seat-files.ts";
 import { seatDir } from "../../catalog/seat/seats.ts";
 import { daemonLog } from "../../core/logger.ts";
@@ -59,7 +59,8 @@ export class SeatLaunch {
     }
     this.seating.ensure(seat.role.role, seat.harness, project);
     const dir = seatDir(this.kit, seat.role, seat.harness, home(), project);
-    const opened = seatEnv(this.kit, request, dir, project, seatBin(this.kit));
+    const bin = seatBin(this.kit);
+    const opened = seatEnv(this.kit, request, dir, project, bin ? { bin, bash: plainBash() } : undefined);
     // Created, the seat brings the key made for it; opened again, it is given back the one it was bound to.
     const key = request.reason === "create" ? request.env[SEAT_KEY] : this.keys.keyOf(request.agentId);
     if (request.reason === "create" && key) this.keys.bind(request.agentId, key);
