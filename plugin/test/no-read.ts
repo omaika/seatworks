@@ -11,6 +11,7 @@ export function noRead(path: string): () => void {
     return () => chmodSync(path, 0o700);
   }
   const icacls = (...args: string[]) => execFileSync("icacls", [path, ...args], { encoding: "utf-8" });
-  icacls("/deny", "*S-1-1-0:(RX)");
+  // Inherited by what is inside too: every account may pass through a folder it cannot list, to a file it names.
+  icacls("/deny", "*S-1-1-0:(OI)(CI)(RX)");
   return () => void icacls("/remove:d", "*S-1-1-0");
 }

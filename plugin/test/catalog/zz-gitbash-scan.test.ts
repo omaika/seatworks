@@ -13,7 +13,7 @@ test("probe: which git each Git Bash finds", { skip: process.platform !== "win32
   const dir = seatBin(loadKit(PLUGIN), tempDir("sw2-probe-"))!;
   const where = execFileSync("where", ["git", "bash", "sh"], { encoding: "utf-8" });
   t.diagnostic(`where: ${where}`);
-  const gitExe = where.split(/\r?\n/).find((line) => /git\.exe$/i.test(line))!;
+  const gitExe = where.split(/\r?\n/).find((line) => /\\cmd\\git\.exe$/i.test(line))!;
   const top = dirname(dirname(gitExe));
   t.diagnostic(`top ${top}; usr/bin git? ${existsSync(join(top, "usr", "bin", "git.exe"))}`);
   t.diagnostic(`bin: ${readdirSync(join(top, "bin")).join(" ")}`);
