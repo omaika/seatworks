@@ -10,6 +10,9 @@ import { ownHome } from "./tempdir.ts";
 const gitHome = execFileSync("git", ["--exec-path"], { encoding: "utf-8" }).trim();
 if (executableIn([gitHome], "git")) process.env.PATH = `${gitHome}${delimiter}${process.env.PATH ?? ""}`;
 
+/** No machine-wide git config, as no owner's home: Git for Windows sets core.autocrlf there, which rewrites every file a test checks out. */
+process.env.GIT_CONFIG_NOSYSTEM = "1";
+
 /** Compiled code kept between runs, here and in the servers the tests start: loading was a quarter of the suite's time. */
 const compiled = enableCompileCache();
 if (compiled.directory) process.env.NODE_COMPILE_CACHE = compiled.directory;

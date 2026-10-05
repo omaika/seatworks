@@ -50,7 +50,7 @@ const list = (value: unknown): string[] => (Array.isArray(value) ? value.map(Str
 const startsOf = (agent: string) => [agent, `${agent} *`, `npx ${agent} *`, `bunx ${agent} *`];
 /** What of the state root a seat's file tools keep off, which no sandbox binds: the desk's record, what replaces the kit's files, and the Human's word. */
 const KEPT = ["roles.json", "refused.json", "own/**", "projects/*/ledger.json", "projects/*/CONTEXT.md"].map(
-  (path) => `${stateRoot("~")}/${path}`,
+  (path) => `${stateRoot("~").replaceAll("\\", "/")}/${path}`,
 );
 
 test("every role builds on every agent the kit ships, each in that agent's own terms", (t) => {

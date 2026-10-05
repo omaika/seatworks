@@ -161,12 +161,16 @@ async function loginCheck(harness: HarnessSpec, roles: string[], providerEnv: Pr
 
 /** What `bin` prints, whatever it exits with: an agent logged out may still answer, and say so with its exit code. */
 function printed(bin: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
-  const { file, shell } = commandIn(pathDirs(), bin);
+  const { file, args: words, windowsVerbatimArguments } = commandIn(pathDirs(), bin, args);
   return new Promise((resolve, reject) =>
-    execFile(file, args, { env, shell, timeout: 15_000, windowsHide: true }, (error, stdout, stderr) =>
-      String(stdout).trim() || !error
-        ? resolve(String(stdout))
-        : reject(new Error((String(stderr) || error.message).trim().slice(0, 300))),
+    execFile(
+      file,
+      words,
+      { env, windowsVerbatimArguments, timeout: 15_000, windowsHide: true },
+      (error, stdout, stderr) =>
+        String(stdout).trim() || !error
+          ? resolve(String(stdout))
+          : reject(new Error((String(stderr) || error.message).trim().slice(0, 300))),
     ),
   );
 }

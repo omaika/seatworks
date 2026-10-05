@@ -129,7 +129,10 @@ test("a seat is handed its servers where its agent takes them at launch, its own
     "the caller's servers stay beside the seat's",
   );
   assert.deepEqual(at(lead.providerOptions, "additionalDirectories"), ["/elsewhere", "/repo"]);
-  assert.deepEqual(at(lead.providerOptions, "settings.sandbox.filesystem.allowWrite"), ["/tmp", "/state/repo/plans"]);
+  assert.deepEqual(at(lead.providerOptions, "settings.sandbox.filesystem.allowWrite"), [
+    "/tmp",
+    join("/state/repo", "plans"),
+  ]);
   const again = applyRole(
     kit,
     team,
@@ -145,7 +148,7 @@ test("a seat is handed its servers where its agent takes them at launch, its own
     ],
     [
       ["/elsewhere", "/repo"],
-      ["/tmp", "/state/repo/plans"],
+      ["/tmp", join("/state/repo", "plans")],
     ],
     "a seat opened again is not handed either twice",
   );
@@ -167,15 +170,15 @@ test("a seat is handed its servers where its agent takes them at launch, its own
       ),
     );
   assert.ok(
-    granted("lead").includes("/state/repo/ultra-review"),
+    granted("lead").includes(join("/state/repo", "ultra-review")),
     "the ultra-review scripts write their reports from the Lead's shell",
   );
   assert.ok(
-    granted("supervisor").includes("/state/repo/CONTEXT.md"),
+    granted("supervisor").includes(join("/state/repo", "CONTEXT.md")),
     "the Supervisor writes the project's concept as the Human settles it",
   );
   assert.ok(
-    !granted("supervisor").includes("/state/repo/checkpoints.log"),
+    !granted("supervisor").includes(join("/state/repo", "checkpoints.log")),
     "a record a skill reads is not one it writes",
   );
   assert.deepEqual(granted("peer"), [], "and a role that declares no writes is granted none");
@@ -195,7 +198,7 @@ test("a Claude seat's file tools are kept off what the desk owns and what sets u
     ).permissions?.deny ?? [];
   const denied = (tool: string, path: string) =>
     deny.some((rule) => rule.startsWith(`${tool}(`) && matchesGlob(path, rule.slice(tool.length + 1, -1)));
-  const machine = stateRoot("~");
+  const machine = stateRoot("~").replaceAll("\\", "/");
   const project = `${machine}/projects/shop-1a2b`;
   const home = (path: string) => path.replace(/^HOME/, "~");
   const backup = "settings.json.bak-20260925-120000";

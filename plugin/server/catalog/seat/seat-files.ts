@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { configFault, formatConfig, readConfig, readConfigStrict, writeConfigAtomic } from "../../core/config-file.ts";
@@ -6,7 +6,7 @@ import { errorText } from "../../core/errors.ts";
 import { LeftAlone, ensureLink, forgetLink, isLink, present, removeLink, writeIfChanged } from "../../core/fs.ts";
 import { type Json, getPath, isRecord, layered, sameJson, setPath } from "../../core/json.ts";
 import { daemonLog } from "../../core/logger.ts";
-import { commandIn, executableIn, expandHome, pathDirs } from "../../core/paths.ts";
+import { type Invocation, commandIn, executableIn, expandHome, pathDirs } from "../../core/paths.ts";
 import { projectBlock, skillProblems, skillSources } from "../kit/content.ts";
 import type { HarnessSpec, Kit, McpServers, RoleSpec } from "../kit/kit.ts";
 import { harnessFileSources, roleSettingsFile } from "../kit/harness-files.ts";
@@ -100,10 +100,10 @@ export function writeRoleSettings(
 const catalogs = new Map<string, string>();
 
 /** Where a command names a path of its own, that path says which directory to run it from; otherwise PATH does. */
-function commandFor(name: string): { file: string; shell: boolean } | undefined {
+function commandFor(name: string, args: string[]): Invocation | undefined {
   const own = isAbsolute(name) || /[\\/]/.test(name);
   const [dirs, called] = own ? [[dirname(name)], basename(name)] : [pathDirs(), name];
-  return executableIn(dirs, called) ? commandIn(dirs, called) : undefined;
+  return executableIn(dirs, called) ? commandIn(dirs, called, args) : undefined;
 }
 
 /** What the agent's own command prints, or nothing at all when it is not installed here. */
@@ -112,17 +112,19 @@ function catalogText(command: string[]): string | undefined {
   const cached = catalogs.get(key);
   if (cached !== undefined) return cached;
   const [name, ...args] = command;
-  const found = commandFor(name!);
+  const found = commandFor(name!, args);
   if (!found) return undefined;
-  const text = execFileSync(found.file, args, {
+  const run = spawnSync(found.file, found.args, {
     encoding: "utf-8",
-    shell: found.shell,
+    windowsVerbatimArguments: found.windowsVerbatimArguments,
     timeout: 20_000,
     maxBuffer: 64 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  catalogs.set(key, text);
-  return text;
+  if (run.error) throw run.error;
+  if (run.status !== 0) throw new Error(`it exited ${run.status ?? run.signal}: ${run.stderr.trim().slice(0, 300)}`);
+  catalogs.set(key, run.stdout);
+  return run.stdout;
 }
 
 /** The catalog is the harness's own, with what it must not offer taken out; failing to build it refuses the seat. */
