@@ -2,7 +2,7 @@
 import "../setup.ts";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import { delimiter, dirname, join } from "node:path";
+import { delimiter, dirname, join, sep } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { hiddenWordsIn } from "../../server/catalog/kit/hidden-words.ts";
@@ -248,7 +248,9 @@ test("every role builds on every agent the kit ships, each in that agent's own t
         `${where}: no model offers native agents`,
       );
       assert.ok(
-        list(at(settings, "sandbox_workspace_write.writable_roots")).every((path) => path.startsWith("/state/demo/")),
+        list(at(settings, "sandbox_workspace_write.writable_roots")).every((path) =>
+          path.startsWith(join(project.state, sep)),
+        ),
         `${where}: writes into the state only where its content says`,
       );
       const rules = readFileSync(join(dir, "rules", "seatworks.rules"), "utf-8");
