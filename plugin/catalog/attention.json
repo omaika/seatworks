@@ -1,4 +1,5 @@
 {
+  "watch": true,
   "brain": "both",
   "sensor": "jev",
   "tickSeconds": 30,

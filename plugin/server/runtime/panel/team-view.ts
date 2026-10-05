@@ -9,7 +9,7 @@ export function describeTeam(kit: Kit, team: Team, project?: Project): TeamView 
   return {
     project: project?.slug ?? null,
     errors: team.errors,
-    attention: { brain: team.attention.brain, sensor: team.attention.sensor },
+    attention: { watch: team.attention.watch, brain: team.attention.brain, sensor: team.attention.sensor },
     review: { sensor: team.review.sensor?.id ?? null },
     hitl: team.hitl,
     rules: team.rules,

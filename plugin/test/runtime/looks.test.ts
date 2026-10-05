@@ -31,13 +31,13 @@ function brain(says: Record<string, number>, why: Record<string, string> = {}, a
   return { asked, judge };
 }
 
-/** The machine settings read by `mode`'s brains, the sensor with its key. */
-function brains(mode: "off" | "sensor" | "seat" | "both"): void {
+/** The machine settings read by `mode`'s brains, the sensor with its key, on a watch that runs unless `watch` says not. */
+function brains(mode: "off" | "sensor" | "seat" | "both", watch = true): void {
   const file = join(stateRoot(), "settings.json");
   const settings = JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>;
   writeFileSync(
     file,
-    JSON.stringify({ ...settings, attention: { brain: mode, sensor: "jev" }, sensor: { jev: { key: KEY } } }),
+    JSON.stringify({ ...settings, attention: { watch, brain: mode, sensor: "jev" }, sensor: { jev: { key: KEY } } }),
   );
 }
 
@@ -151,7 +151,7 @@ test("with both brains the sensor sifts and the Watcher seat judges only what it
   );
 });
 
-test("a Lead's brief is judged once, at the add_tasks that wrote it, on what the call says, and a brain off reads nothing", async (t) => {
+test("a Lead's brief is judged once, at the add_tasks that wrote it, on what the call says, and a brain or watch off reads nothing", async (t) => {
   const sensed = brain({ "pre-solves": 0.9 }, {}, /src\/cart\.ts/);
   const { h, lane } = await laneWithPeer(undefined, { sensor: () => sensed.judge });
   brains("sensor");
@@ -194,6 +194,13 @@ test("a Lead's brief is judged once, at the add_tasks that wrote it, on what the
   stream.beat("turn_completed", "l3");
   await looked();
   assert.equal(sensed.asked.length, before, "with the brain off, nothing is asked");
+
+  brains("sensor", false);
+  stream.beat("turn_started", "l4");
+  stream.add({ type: "assistant_message", text: "Still waiting on the hand-back.", messageId: "l-m4" }, "l4");
+  stream.beat("turn_completed", "l4");
+  await looked();
+  assert.equal(sensed.asked.length, before, "with the watch off, its brains ask nothing");
 });
 
 test("a review briefed to report only certainties is judged at start_review against the Lead's own doubt, as evidence on the code's fact", async (t) => {

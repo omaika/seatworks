@@ -17,7 +17,7 @@ function keptDrafts(drafts: KeyDrafts, rows: readonly KeyRow<{ id: string }>[]):
 }
 
 function reads(attention: TeamView["attention"], id: string): boolean {
-  return (attention.brain === "sensor" || attention.brain === "both") && attention.sensor === id;
+  return attention.watch && (attention.brain === "sensor" || attention.brain === "both") && attention.sensor === id;
 }
 
 /** The watch's key row: only for a sensor its brains read with, so a watch that never asks a sensor never warns of its key. */

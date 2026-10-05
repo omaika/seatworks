@@ -50,7 +50,7 @@ export async function notice(
   place = placeOf(services.kit, project, seat),
   now = Date.now(),
 ): Promise<{ opened: Incident[]; sent: string[]; place: Placed }> {
-  if (findings.length === 0) return { opened: [], sent: [], place };
+  if (findings.length === 0 || !services.teamFor(project).attention.watch) return { opened: [], sent: [], place };
   for (const finding of findings) {
     recordEvent(project, {
       kind: "watch.finding",

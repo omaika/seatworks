@@ -96,7 +96,7 @@ test("a panel edit changes only what it names and keeps the rest of the layer", 
 
 test("a key typed for the watch's sensor is gone once its row goes, and does not come back with it", () => {
   const sensors = [{ id: "jev" }, { id: "other" }];
-  const reading: TeamView["attention"] = { brain: "sensor", sensor: "jev" };
+  const reading: TeamView["attention"] = { watch: true, brain: "sensor", sensor: "jev" };
   const typed = { jev: "jev-key" };
   const ids = (line: ReturnType<typeof watchKeyLine>) => line.rows.map((row) => row.sensor.id);
   const rows: [TeamView["attention"]["brain"], string[]][] = [
@@ -106,17 +106,22 @@ test("a key typed for the watch's sensor is gone once its row goes, and does not
     ["both", ["jev"]],
   ];
   for (const [brain, keyed] of rows)
-    assert.deepEqual(ids(watchKeyLine(sensors, { brain, sensor: "jev" }, {})), keyed, `brains ${brain}`);
+    assert.deepEqual(ids(watchKeyLine(sensors, { watch: true, brain, sensor: "jev" }, {})), keyed, `brains ${brain}`);
+  assert.deepEqual(ids(watchKeyLine(sensors, { ...reading, watch: false }, {})), [], "the watch off asks no sensor");
   assert.equal(watchKeyLine(sensors, reading, typed).drafts, typed, "kept while its own sensor's row shows");
-  const moved = watchKeyLine(sensors, { brain: "sensor", sensor: "other" }, typed).drafts;
+  const moved = watchKeyLine(sensors, { watch: true, brain: "sensor", sensor: "other" }, typed).drafts;
   assert.deepEqual(moved, {}, "never left for another sensor's Save");
-  assert.deepEqual(watchKeyLine(sensors, { brain: "seat", sensor: "jev" }, typed).drafts, {}, "dropped with its row");
+  assert.deepEqual(
+    watchKeyLine(sensors, { watch: true, brain: "seat", sensor: "jev" }, typed).drafts,
+    {},
+    "dropped with its row",
+  );
   assert.deepEqual(watchKeyLine(sensors, reading, moved).drafts, {}, "not brought back when the first sensor returns");
 });
 
 test("review's line offers a key row wherever a project's review could ask with it, and none where nothing asks", () => {
   const sensors = [{ id: "jev" }, { id: "other" }];
-  const team = { review: { sensor: "other" }, attention: { brain: "seat", sensor: "jev" } } as const;
+  const team = { review: { sensor: "other" }, attention: { watch: true, brain: "seat", sensor: "jev" } } as const;
   const off: Layer = { review: { sensor: REVIEW_OFF } };
   const rows: [string, Layer, Layer, "machine" | "project", string[]][] = [
     ["machine Off still offers every key a project may name", off, {}, "machine", ["jev", "other"]],
@@ -134,7 +139,7 @@ test("review's line offers a key row wherever a project's review could ask with 
 
 test("review's select shows only what its own page picked, so the machine's Off is never shown as a project's choice", () => {
   const sensors = [{ id: "jev" }];
-  const team = { review: { sensor: null }, attention: { brain: "seat", sensor: "jev" } } as const;
+  const team = { review: { sensor: null }, attention: { watch: true, brain: "seat", sensor: "jev" } } as const;
   const off: Layer = { review: { sensor: REVIEW_OFF } };
   assert.equal(reviewLine(sensors, team, {}, off, "project", {}).value, "", "inherited Off shows as the empty choice");
   assert.equal(reviewLine(sensors, team, off, {}, "machine", {}).value, REVIEW_OFF, "Off picked here shows as Off");
@@ -142,7 +147,7 @@ test("review's select shows only what its own page picked, so the machine's Off 
 
 test("a key typed on review's line goes with its row, so a sensor that comes back shows no hidden key to save", () => {
   const sensors = [{ id: "jev" }, { id: "other" }];
-  const team = { review: { sensor: "jev" }, attention: { brain: "seat", sensor: "jev" } } as const;
+  const team = { review: { sensor: "jev" }, attention: { watch: true, brain: "seat", sensor: "jev" } } as const;
   const off: Layer = { review: { sensor: REVIEW_OFF } };
   const typed = { jev: "jev-key", other: "other-key" };
   assert.equal(reviewLine(sensors, team, off, {}, "machine", typed).drafts, typed, "kept while every row shows");
@@ -155,7 +160,7 @@ test("a key typed on review's line goes with its row, so a sensor that comes bac
 test("with Jev off on the machine, its key row is offered as optional and warns of nothing", () => {
   const jev = { id: "jev", label: "Jev", key: "OpenRouter key" };
   const off: Layer = { review: { sensor: REVIEW_OFF } };
-  const team = { review: { sensor: null }, attention: { brain: "seat", sensor: "jev" } } as const;
+  const team = { review: { sensor: null }, attention: { watch: true, brain: "seat", sensor: "jev" } } as const;
   const words = (attention: TeamView["attention"], kept: boolean) => {
     const [row] = reviewLine([jev], { ...team, attention }, off, {}, "machine", {}).rows;
     return keyWords(row!.sensor, { asked: row!.asked, kept, layer: "machine", role: "Watcher" });
@@ -169,7 +174,7 @@ test("with Jev off on the machine, its key row is offered as optional and warns 
   const [missing, kept] = [words(team.attention, false), words(team.attention, true)];
   assert.equal(missing.label, kept.label, "no key: the field is named as when one is kept");
   assert.ok(kept.hint.includes(missing.hint), `no key: nothing said of the missing key\n${missing.hint}`);
-  const reading = words({ brain: "sensor", sensor: "jev" }, false);
+  const reading = words({ watch: true, brain: "sensor", sensor: "jev" }, false);
   assert.doesNotMatch(reading.label, /optional/i, "a key the machine's own watch asks with is not called optional");
 });
 

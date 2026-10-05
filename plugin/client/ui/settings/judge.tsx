@@ -108,12 +108,12 @@ export function keyRows(
   ];
 }
 
-/** Inside a judging role's line: which brains read what the watch sees, then the sensor's key and this seat's agent. */
+/** Inside a judging role's line: whether the watch runs, which brains read what it sees, then the sensor's key and this seat's agent. */
 export function JudgeRows(props: Props) {
   const { catalog, team, values, machine, layer, theme, disabled, role, rows, save } = props;
   const [held, setHeld] = useState<KeyDrafts>({});
   const field = useRef<SettingsInputHandle>(null);
-  const { brain } = team.attention;
+  const { watch, brain } = team.attention;
   const sensor = catalog.sensors.find((entry) => entry.id === team.attention.sensor);
   const named = sensor?.label ?? "The sensor";
   const options = [
@@ -125,26 +125,48 @@ export function JudgeRows(props: Props) {
   const judges = brain === "seat" || brain === "both";
   const { rows: keyed, drafts } = watchKeyLine(catalog.sensors, team.attention, held);
   if (drafts !== held) setHeld(drafts);
-  const note = judges
-    ? `One ${role.label} per project, seated under the Supervisor when it first has something to judge, and let go once no lane is open.${brain === "both" ? ` It judges only what ${named} flags or leaves unsure.` : ""}`
-    : `No ${role.label} is seated. What is set for the ${role.label} seat is kept for when it judges again.`;
+  const note = !watch
+    ? "The watch is off: neither its eye nor its brains open an incident, and the Supervisor is told nothing."
+    : judges
+      ? `One ${role.label} per project, seated under the Supervisor when it first has something to judge, and let go once no lane is open.${brain === "both" ? ` It judges only what ${named} flags or leaves unsure.` : ""}`
+      : `No ${role.label} is seated. What is set for the ${role.label} seat is kept for when it judges again.`;
   return (
     <Rows theme={theme}>
       <SettingsRow
-        label="Brains"
-        hint={`Which brains read what the watch's eye sees. Both: ${named} sifts, the ${role.label} judges. ${sourceLabel(
-          sourceOf(values, machine, (entry) => entry.attention?.brain, layer),
+        label="Watch"
+        hint={`Whether the watch runs at all. ${sourceLabel(
+          sourceOf(values, machine, (entry) => entry.attention?.watch, layer),
           layer,
         )}.`}
       >
         <TabBar
           theme={theme}
-          active={brain}
+          active={watch ? "on" : "off"}
           disabled={disabled}
-          onPick={(next) => void save((current) => setAttention(current, { brain: next as typeof brain }))}
-          tabs={options}
+          onPick={(next) => void save((current) => setAttention(current, { watch: next === "on" }))}
+          tabs={[
+            { id: "on", label: "On" },
+            { id: "off", label: "Off" },
+          ]}
         />
       </SettingsRow>
+      {watch ? (
+        <SettingsRow
+          label="Brains"
+          hint={`Which brains read what the watch's eye sees. Both: ${named} sifts, the ${role.label} judges. ${sourceLabel(
+            sourceOf(values, machine, (entry) => entry.attention?.brain, layer),
+            layer,
+          )}.`}
+        >
+          <TabBar
+            theme={theme}
+            active={brain}
+            disabled={disabled}
+            onPick={(next) => void save((current) => setAttention(current, { brain: next as typeof brain }))}
+            tabs={options}
+          />
+        </SettingsRow>
+      ) : null}
       {keyed.flatMap(({ sensor, asked }) =>
         keyRows(
           { ...props, sensor, asked },
@@ -156,7 +178,7 @@ export function JudgeRows(props: Props) {
           "one at each moment the watch asks about",
         ),
       )}
-      {judges ? rows : null}
+      {watch && judges ? rows : null}
       <Text style={{ color: theme.colors.foregroundMuted, fontSize: FONT.small, padding: SPACE.lg }}>{note}</Text>
     </Rows>
   );

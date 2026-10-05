@@ -135,6 +135,8 @@ export const AttentionChoice = z.strictObject({
   incidentsKept: z.number().int().min(1).optional(),
   /** How long a case waits on the Watcher seat's answer before it is given up. */
   watcherAnswerMinutes: z.number().int().min(1).optional(),
+  /** Whether the watch runs at all: off, neither its eye nor its brains open an incident, and nothing is told. */
+  watch: z.boolean().optional(),
   /** Which brains read what the watch's eye sees: none, the sensor, the Watcher seat, or both (the sensor sifts, the seat judges). */
   brain: z.enum(["off", "sensor", "seat", "both"]).optional(),
   sensor: z.string().min(1).optional(),

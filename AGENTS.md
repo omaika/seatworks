@@ -45,7 +45,7 @@ The plugin **serves** SLP so it works better with Paseo. It must **never constra
   moments: a Lead making an architecture decision, a Peer struggling with an unclear idea, a sharp
   change of direction, an agent saying it was wrong. The brains are a sensor, a cheap typed model
   asked one condition at a time, and the Watcher seat, a model that judges; `attention.brain` says
-  which run. What they find opens an incident. W never decides, never steps in, and never speaks to
+  which run, and `attention.watch` off stops W whole, eye and brains. What they find opens an incident. W never decides, never steps in, and never speaks to
   the seat it watches.
 - **R is evidence for acceptance.** The Lead answers for its Peers' work and starts Reviewers to
   review it. A verdict never decides anything on its own.

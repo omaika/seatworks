@@ -234,6 +234,15 @@ test("every signal the watch raises is told to whoever supervises, with no switc
   assert.match(h.heard(sup).join("\n"), /\(suppressed, attend\)[^]*\(stand-in, attend\)/);
 });
 
+test("with the watch off, nothing it raises, a page included, opens an incident or reaches whoever supervises", async () => {
+  const { h, sup, peer } = await laneWithPeer({ attention: { watch: false } });
+  await notice(h, peer, "destructive", "page", "rm -rf build");
+  await notice(h, peer, "stand-in", "attend", "I'll build a stub for the parser.");
+  assert.deepEqual(book(h), {});
+  await h.idle(sup);
+  assert.doesNotMatch(h.heard(sup).join("\n"), /destructive|stand-in/);
+});
+
 test("a brain never stands in for an open code fact, and a noise mark settles its kind there whichever eye found it", async () => {
   const { h, sup, peer } = await laneWithPeer();
   const read = async (kind: string, quote: string) =>

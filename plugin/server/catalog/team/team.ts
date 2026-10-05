@@ -110,9 +110,9 @@ function resolveRoles(
   return roles;
 }
 
-/** The brains the settings chose, each only where the kit has it: a sensor by its id, a seat by a role that can judge. */
+/** The brains the settings chose, each only where the kit has it: a sensor by its id, a seat by a role that can judge; none with the watch off. */
 function brainsOf(kit: Kit, attention: Attention, layers: Layer[], errors: string[]): Brains {
-  const mode = attention.brain;
+  const mode = attention.watch ? attention.brain : "off";
   if (mode === "off") return { mode };
   const judges = kit.roles.filter((role) => can(role, "judge")).map((role) => role.role);
   const seat = judges[0];
