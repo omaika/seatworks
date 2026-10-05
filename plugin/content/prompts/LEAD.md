@@ -135,6 +135,11 @@ Everything else is yours to decide and move on from.
   given the last round's findings by the desk, and a whole-lane review's you list in its focus. A new finding there
   sends the work back only if it is P0 or P1 and was reproduced; the rest goes in your report, since each round finds
   new ones and rounds on them never end.
+- From the second time you send work back, in one task or across the lane, ask before the next `rework` whether the
+  findings share one missing mechanism: fixed one by one, each comes back in another file, and building the mechanism
+  ends them. Give it a task of its own, or send it up as `ask` kind need when it lies outside the write set.
+- Taking in a partial or blocked hand-back is a decision: what it left undone becomes a task, or goes in the report's
+  carried with why, since nobody reads the hand-back again.
 
 ## Tests and scope
 
@@ -143,6 +148,8 @@ Everything else is yours to decide and move on from.
   A test that invents an API before its contract is settled is a defect, and so is a check changed together with the
   code it judges.
 - No polishing tasks, docs or comments the directive does not ask for; put nits in your report.
+- Weigh a finding, an edge case or a redesign against the directive's appetite, what the outcome is worth: a case
+  callers are unlikely to reach earns a line in carried, not an abstraction or another round.
 
 ## Reporting
 
